@@ -50,6 +50,25 @@ This plan identifies the critical MVP scenarios. Exact test files and tools will
 | Call `check_shopping_list` with positive quantities. | MCP reports availability for every requested item. |
 | Attempt to change stock through MCP. | No write tool or write endpoint is available. |
 
+## Branch resolution scenarios
+
+| Scenario | Expected result |
+| --- | --- |
+| Resolve the exact name `Lille`. | The Backoffice endpoint returns the authoritative Lille branch identifier. |
+| Resolve `lille`. | Matching is case-insensitive and returns the Lille branch. |
+| Resolve `  Lille  `. | Leading and trailing whitespace is ignored. |
+| Call the endpoint without `name`. | HTTP `400` uses the existing `INVALID_REQUEST` error shape. |
+| Call the endpoint with an empty or whitespace-only `name`. | HTTP `400` uses the existing `INVALID_REQUEST` error shape. |
+| Search for an unknown branch. | HTTP `200` returns an empty `branches` list. |
+| Search for a name with several possible matches and no exact match. | Every possible branch is returned for clarification. |
+| Search for a name that has an exact match and other possible matches. | The exact normalized match is preferred and returned alone. |
+| Ask the agent for stock in Lille. | `resolve_branch` obtains the authoritative `branch_id`, then `get_branch_stock` uses it. |
+| Inspect the identifier used by the agent. | Every `branch_id` comes from the Backoffice response and is never invented. |
+| Ask about an unknown branch. | The agent returns a controlled response without calling stock routes with a guessed identifier. |
+| Ask with a branch name that remains ambiguous. | The agent asks the user to clarify before consulting stock. |
+| Call the branch-resolution endpoint. | No branch is created, updated, or deleted. |
+| Inspect the branch-resolution response. | It contains only branch `id` and `name`, with no product or stock data. |
+
 ## AI and public interface scenarios
 
 | Scenario | Expected result |

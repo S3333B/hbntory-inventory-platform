@@ -59,3 +59,9 @@
 - **Choice:** each local stock record stores only the integer `external_product_id` returned by the official API. A SKU selected by a user is resolved through the API before the numeric identifier is saved.
 - **Benefits:** stock keeps a stable catalog reference without duplicating SKU values or product metadata.
 - **Trade-offs:** displaying or resolving a product requires the external API, and `external_product_id` cannot be enforced as a SQL foreign key because there is no local `Product` table.
+
+## ADR 11 — AI resolves branch names through a controlled internal endpoint
+
+- **Choice:** the Product MCP Server resolves natural-language branch names through a read-only HBntory internal endpoint before calling stock routes that require a numeric `branch_id`. This endpoint remains internal and is not exposed directly to public clients.
+- **Benefits:** users can refer to branches naturally, numeric internal identifiers remain hidden from public interactions, identifiers come from authoritative HBntory data, and the agent does not invent them.
+- **Trade-offs:** resolution may require an additional internal request, ambiguous names may require user clarification, and no-match or unavailable-service errors must be handled.

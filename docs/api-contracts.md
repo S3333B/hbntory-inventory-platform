@@ -147,9 +147,63 @@ Suggested HTTP errors:
 
 An unknown product should normally produce a grounded successful answer such as “Product 999 was not found.” If the calling flow needs an error, it uses `404 PRODUCT_NOT_FOUND` consistently.
 
-## Internal read-only stock endpoints
+## Internal read-only branch and stock endpoints
 
-These endpoints are available only to the Product MCP Server on the internal Docker network. The proposed authentication mechanism is an `X-Internal-Token` header containing `INTERNAL_API_TOKEN`. The final mechanism requires team validation.
+These endpoints belong to the HBntory Backoffice and are available only to the Product MCP Server through controlled internal communication. They are not External Product API endpoints and are not directly public. The proposed authentication mechanism is an `X-Internal-Token` header containing `INTERNAL_API_TOKEN`. The final mechanism requires team validation.
+
+### `GET /internal/branches?name=Lille`
+
+Resolves a natural-language branch name before the Product MCP Server calls a stock route that requires a numeric `branch_id`. End users never need to know that internal identifier.
+
+The endpoint returns only the minimum branch information required for resolution. It does not return product or stock data, does not create or modify a branch, and remains read-only.
+
+Successful response:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "branches": [
+      {
+        "id": 2,
+        "name": "Lille"
+      }
+    ]
+  }
+}
+```
+
+Lookup behaviour:
+
+- the `name` query parameter is required;
+- leading and trailing whitespace is ignored;
+- matching is case-insensitive;
+- an exact normalized match is preferred and returned alone;
+- when no exact match exists, all possible matches are returned;
+- no match returns HTTP `200` with an empty `branches` list;
+- a missing `name` parameter or a value that is empty after trimming returns HTTP `400` using the existing HBntory error shape.
+
+Missing-parameter response:
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "INVALID_REQUEST",
+    "message": "The name query parameter is required."
+  }
+}
+```
+
+Branch resolution flow:
+
+1. The user mentions a branch, for example “Lille”.
+2. The agent calls the MCP branch-resolution tool.
+3. The Product MCP Server calls `GET /internal/branches?name=Lille`.
+4. It reads the authoritative `branch_id` from the selected result.
+5. It uses that `branch_id` to call the existing internal stock routes.
+6. If no branch matches, the agent returns a controlled unknown-branch response.
+7. If several branches remain possible, the agent asks the user to clarify the choice.
 
 ### `GET /internal/stocks/products/{external_product_id}`
 
@@ -213,6 +267,35 @@ MCP tool failures use a structured result with a stable code and clear message:
   }
 }
 ```
+
+### `resolve_branch`
+
+- **Input:**
+
+```json
+{
+  "name": "Lille"
+}
+```
+
+- **Output:** the same minimal branch-resolution data returned by the internal Backoffice endpoint:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "branches": [
+      {
+        "id": 2,
+        "name": "Lille"
+      }
+    ]
+  }
+}
+```
+
+- **Rules:** the tool never invents a `branch_id`; it returns authoritative Backoffice results only. An empty result produces a controlled unknown-branch response, and multiple possible matches require user clarification before any stock lookup.
+- **Errors:** `INVALID_REQUEST`, `BRANCH_API_UNAVAILABLE`.
 
 ### `list_products`
 
