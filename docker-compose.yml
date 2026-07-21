@@ -1,0 +1,36 @@
+# HBntory Docker Compose foundation — External Product API only.
+#
+# Builds the official read-only catalog from hbtn-edu/hbntory-products-api
+# without copying or modifying that repository. Future HBntory services
+# (PostgreSQL, Backoffice, MCP, AI) can be added to this file later.
+#
+# Official source: https://github.com/hbtn-edu/hbntory-products-api
+# Official host URL: http://localhost:5001
+# In-network service URL: http://external-products-api:5000
+
+services:
+  external-products-api:
+    build:
+      context: https://github.com/hbtn-edu/hbntory-products-api.git#main
+    image: hbntory-external-products-api:local
+    container_name: hbntory-external-products-api
+    environment:
+      HBN_PRODUCTS_PORT: ${HBN_PRODUCTS_PORT:-5000}
+      HBN_PRODUCTS_LATENCY_MS: ${HBN_PRODUCTS_LATENCY_MS:-0}
+    ports:
+      - "${PRODUCT_API_HOST_PORT:-5001}:${HBN_PRODUCTS_PORT:-5000}"
+    restart: unless-stopped
+    # Uses the official GET /health endpoint with Python already present
+    # in the official image (python:3.11-slim). No extra tools required.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; port = os.environ.get('HBN_PRODUCTS_PORT', '5000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s

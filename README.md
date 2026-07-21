@@ -9,7 +9,7 @@ HBntory is a two-week inventory management project. It combines an internal stoc
 
 ## Current status
 
-> Task 0 — Architecture and Planning. No application feature has been implemented yet.
+> Docker foundation for the official External Product API is available on this branch. Backoffice, database, MCP, and AI features are developed separately.
 
 ## Architecture summary
 
@@ -86,6 +86,7 @@ hbntory-inventory-platform/
 - [API and MCP contracts](docs/api-contracts.md)
 - [Team organization](docs/team-organization.md)
 - [Test plan](docs/test-plan.md)
+- [External Product API Docker foundation](docs/external-product-api.md)
 
 ## External dependency
 
@@ -94,9 +95,74 @@ HBntory consumes the official read-only External Product API:
 
 The API must be available before running the complete Backoffice, MCP, and AI flow. Its base URL is configured with `PRODUCT_API_URL`. See [API and MCP contracts](docs/api-contracts.md) for the supported execution URLs and official endpoints.
 
-## Setup
+Full Docker procedure and validation notes: [docs/external-product-api.md](docs/external-product-api.md).
 
-To be completed after the architecture and planning phase.
+## Setup — External Product API
+
+### Prerequisites
+
+- Docker Engine with Compose (`docker compose` or `docker-compose`)
+- Network access to GitHub (the official API is built from its public repository)
+- `curl` for manual checks
+
+### Configuration
+
+```bash
+cp .env.example .env
+```
+
+Do not commit `.env`. Important variables:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PRODUCT_API_URL` | `http://localhost:5001` | Base URL for future HBntory clients |
+| `PRODUCT_API_HOST_PORT` | `5001` | Host port published by Compose |
+| `HBN_PRODUCTS_PORT` | `5000` | Listen port inside the API container |
+| `HBN_PRODUCTS_LATENCY_MS` | `0` | Optional simulated base latency |
+
+### Start
+
+```bash
+docker compose up --build -d external-products-api
+```
+
+### Check status
+
+```bash
+docker compose ps
+docker compose logs external-products-api
+curl -sS http://localhost:5001/health
+```
+
+### Manual API tests
+
+```bash
+# List products
+curl -sS "http://localhost:5001/api/v1/products?limit=2"
+
+# Existing product by id
+curl -sS http://localhost:5001/api/v1/products/1
+
+# Existing product by SKU
+curl -sS http://localhost:5001/api/v1/products/HB-LAP-1001
+
+# Unknown product → HTTP 404
+curl -sS -i http://localhost:5001/api/v1/products/999999
+```
+
+### Stop
+
+```bash
+docker compose down
+```
+
+Official routes used by this foundation:
+
+- `GET /health`
+- `GET /api/v1/products`
+- `GET /api/v1/products/{id_or_sku}`
+
+The catalog is read-only. HBntory never stores product metadata from this API in PostgreSQL.
 
 ## Contributing
 
