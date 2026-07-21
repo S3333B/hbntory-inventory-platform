@@ -9,7 +9,7 @@ HBntory is a two-week inventory management project. It combines an internal stoc
 
 ## Current status
 
-> Docker foundation for the official External Product API is available on this branch. Backoffice, database, MCP, and AI features are developed separately.
+> The External Product API Docker foundation and Task 1 database foundation are available. Backoffice routes, authentication, MCP, and AI features are developed separately.
 
 ## Architecture summary
 

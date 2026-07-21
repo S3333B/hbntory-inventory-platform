@@ -1,8 +1,9 @@
-# HBntory Docker Compose foundation — External Product API only.
+# HBntory Docker Compose foundation — External Product API and PostgreSQL.
 #
 # Builds the official read-only catalog from hbtn-edu/hbntory-products-api
-# without copying or modifying that repository. Future HBntory services
-# (PostgreSQL, Backoffice, MCP, AI) can be added to this file later.
+# without copying or modifying that repository. PostgreSQL stores HBntory's
+# local users, branches, and stock. Backoffice, MCP, and AI services can be
+# added to this file later.
 #
 # Official source: https://github.com/hbtn-edu/hbntory-products-api
 # Official host URL: http://localhost:5001
@@ -34,3 +35,25 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  postgres:
+    image: postgres:16.6-alpine
+    container_name: hbntory-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hbntory}
+      POSTGRES_USER: ${POSTGRES_USER:-hbntory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-before-running-postgres}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - hbntory-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  hbntory-postgres-data:

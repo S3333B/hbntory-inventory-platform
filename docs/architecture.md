@@ -8,7 +8,7 @@ The public web interface is part of the AI Query Service. It is not a separate D
 
 ## Target repository structure
 
-This is the target structure, not the current implementation. Task 0 creates documentation only and does not create empty application files in advance.
+This is the target structure. The project implements it incrementally without creating empty application files in advance.
 
 ```text
 hbntory-inventory-platform/
@@ -120,7 +120,7 @@ The public page contains only a question field, a submit button, a loading indic
 
 ### Docker Compose
 
-Docker Compose will orchestrate the HBntory services. The official Product API may either share a Docker network or run separately with its own provided Docker Compose configuration. The complete HBntory Compose configuration is outside the scope of Task 0.
+Docker Compose currently defines PostgreSQL and the official Product API without modifying the external source. Backoffice, MCP, and AI services will be added in later tasks. The Product API may either share a Docker network or run separately with its own provided Docker Compose configuration.
 
 ## Data ownership
 

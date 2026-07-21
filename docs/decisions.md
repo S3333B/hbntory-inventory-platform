@@ -65,3 +65,9 @@
 - **Choice:** the Product MCP Server resolves natural-language branch names through a read-only HBntory internal endpoint before calling stock routes that require a numeric `branch_id`. This endpoint remains internal and is not exposed directly to public clients.
 - **Benefits:** users can refer to branches naturally, numeric internal identifiers remain hidden from public interactions, identifiers come from authoritative HBntory data, and the agent does not invent them.
 - **Trade-offs:** resolution may require an additional internal request, ambiguous names may require user clarification, and no-match or unavailable-service errors must be handled.
+
+## ADR 12 — Initial schema creation uses SQLAlchemy metadata
+
+- **Choice:** Task 1 uses SQLAlchemy 2.x directly and `Base.metadata.create_all()` to bootstrap new databases. No Alembic dependency is introduced yet.
+- **Benefits:** the first schema is reproducible with the minimum dependency set and remains independent from Flask routes or application startup.
+- **Trade-offs:** `create_all()` is not a migration system and cannot safely evolve an existing schema. A versioned migration tool must be selected before later schema changes.
