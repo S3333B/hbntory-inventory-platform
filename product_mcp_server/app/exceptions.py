@@ -17,6 +17,13 @@ class InvalidProductIdentifierError(ProductApiError):
         super().__init__(message, code="INVALID_PRODUCT_REFERENCE")
 
 
+class InvalidProductArgumentError(ProductApiError):
+    """Raised when a Product API list filter is invalid."""
+
+    def __init__(self, message: str = "A product list argument is invalid.") -> None:
+        super().__init__(message, code="INVALID_ARGUMENT")
+
+
 class ProductNotFoundError(ProductApiError):
     """Raised when the external Product API returns HTTP 404 for a product."""
 

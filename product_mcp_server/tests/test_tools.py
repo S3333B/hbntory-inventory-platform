@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -61,6 +62,19 @@ class TestListProductsTool:
         )
         assert fake_client.list_calls[0]["q"] == "laptop"
         assert fake_client.list_calls[0]["limit"] == 5
+
+    def test_unexpected_error_hides_sensitive_details(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = FakeProductApiClient(
+            list_error=RuntimeError("token=must-not-appear"),
+        )
+        with caplog.at_level(logging.ERROR):
+            result = list_products_handler(client)  # type: ignore[arg-type]
+        assert result["error"]["code"] == "INTERNAL_ERROR"
+        assert "must-not-appear" not in str(result)
+        assert "must-not-appear" not in caplog.text
 
 
 class TestGetProductDetailsTool:
@@ -157,6 +171,13 @@ class TestMcpRegistration:
                 for verb in ("create", "update", "delete", "write", "set")
             )
 
+        detail_tool = next(tool for tool in tools if tool.name == "get_product_details")
+        identifier_schema = detail_tool.inputSchema["properties"]["id_or_sku"]
+        accepted_types = {
+            schema["type"] for schema in identifier_schema.get("anyOf", [])
+        }
+        assert accepted_types == {"integer", "string"}
+
     def test_create_mcp_server_registers_tools(self) -> None:
         settings = Settings(
             product_api_url="http://product-api.test",
@@ -169,6 +190,8 @@ class TestMcpRegistration:
         client = FakeProductApiClient()
         mcp, bound_client = create_mcp_server(settings, client=client)  # type: ignore[arg-type]
         assert bound_client is client
+        assert mcp.settings.stateless_http is True
+        assert mcp.settings.json_response is True
         tools = asyncio.run(mcp.list_tools())
         assert {tool.name for tool in tools} == {
             "list_products",

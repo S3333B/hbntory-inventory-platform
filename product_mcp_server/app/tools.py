@@ -81,8 +81,11 @@ def list_products_handler(
     except ProductApiError as exc:
         logger.info("list_products failed with %s: %s", exc.code, exc.message)
         return product_api_error_to_result(exc)
-    except Exception:
-        logger.exception("Unexpected error in list_products")
+    except Exception as exc:
+        logger.error(
+            "Unexpected error in list_products (%s)",
+            type(exc).__name__,
+        )
         return error_result(
             "INTERNAL_ERROR",
             "An unexpected error occurred while listing products.",
@@ -106,8 +109,11 @@ def get_product_details_handler(
             exc.message,
         )
         return product_api_error_to_result(exc)
-    except Exception:
-        logger.exception("Unexpected error in get_product_details")
+    except Exception as exc:
+        logger.error(
+            "Unexpected error in get_product_details (%s)",
+            type(exc).__name__,
+        )
         return error_result(
             "INTERNAL_ERROR",
             "An unexpected error occurred while retrieving the product.",
@@ -169,7 +175,7 @@ def register_product_tools(
             "product data and never writes data."
         ),
     )
-    def get_product_details(id_or_sku: str) -> dict[str, Any]:
+    def get_product_details(id_or_sku: str | int) -> dict[str, Any]:
         return get_product_details_handler(client, id_or_sku=id_or_sku)
 
     # Keep a stable export of handlers for unit tests without MCP transport.

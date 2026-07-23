@@ -8,13 +8,15 @@ persists catalog data.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Mapping, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
 from product_mcp_server.app.exceptions import (
+    InvalidProductArgumentError,
     InvalidProductIdentifierError,
     ProductApiConnectionError,
     ProductApiResponseError,
@@ -45,6 +47,18 @@ _LIST_PARAM_NAMES = (
 
 # Reject path injection and empty identifiers before calling the API.
 _INVALID_ID_PATTERN = re.compile(r"[/?#\s\\]")
+_SORT_VALUES = {
+    "name",
+    "sku",
+    "category",
+    "unit_price",
+    "updated_at",
+    "-name",
+    "-sku",
+    "-category",
+    "-unit_price",
+    "-updated_at",
+}
 
 
 class HttpClientProtocol(Protocol):
@@ -69,15 +83,11 @@ def validate_product_identifier(id_or_sku: str | int | None) -> str:
     """
 
     if id_or_sku is None:
-        raise InvalidProductIdentifierError(
-            "A product id or SKU is required."
-        )
+        raise InvalidProductIdentifierError("A product id or SKU is required.")
 
     if isinstance(id_or_sku, bool):
         # bool is a subclass of int; reject it as a product identifier.
-        raise InvalidProductIdentifierError(
-            "The product identifier is invalid."
-        )
+        raise InvalidProductIdentifierError("The product identifier is invalid.")
 
     if isinstance(id_or_sku, int):
         if id_or_sku <= 0:
@@ -93,14 +103,36 @@ def validate_product_identifier(id_or_sku: str | int | None) -> str:
 
     value = id_or_sku.strip()
     if not value:
-        raise InvalidProductIdentifierError(
-            "A product id or SKU is required."
-        )
+        raise InvalidProductIdentifierError("A product id or SKU is required.")
     if _INVALID_ID_PATTERN.search(value):
         raise InvalidProductIdentifierError(
             "The product identifier contains invalid characters."
         )
     return value
+
+
+def _optional_string(name: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise InvalidProductArgumentError(f"{name} must be a string.")
+    normalized = value.strip()
+    return normalized or None
+
+
+def _optional_price(name: str, value: float | None) -> float | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise InvalidProductArgumentError(
+            f"{name} must be a finite non-negative number."
+        )
+    return float(value)
 
 
 class ProductApiClient:
@@ -115,10 +147,28 @@ class ProductApiClient:
     ) -> None:
         if not base_url or not str(base_url).strip():
             raise ValueError("base_url must not be empty.")
-        if timeout <= 0:
+        parsed_base_url = urlsplit(str(base_url).strip())
+        if (
+            parsed_base_url.scheme not in {"http", "https"}
+            or not parsed_base_url.hostname
+            or parsed_base_url.username is not None
+            or parsed_base_url.password is not None
+            or parsed_base_url.query
+            or parsed_base_url.fragment
+        ):
+            raise ValueError(
+                "base_url must be an HTTP(S) URL without credentials, "
+                "a query, or a fragment."
+            )
+        if (
+            not isinstance(timeout, (int, float))
+            or isinstance(timeout, bool)
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
             raise ValueError("timeout must be greater than zero.")
 
-        self._base_url = str(base_url).rstrip("/")
+        self._base_url = str(base_url).strip().rstrip("/")
         self._timeout = float(timeout)
         self._owns_client = http_client is None
         self._http: HttpClientProtocol = http_client or httpx.Client(
@@ -165,41 +215,61 @@ class ProductApiClient:
         array is a valid successful response, distinct from connection errors.
         """
 
-        params: dict[str, Any] = {}
-        if q is not None and str(q).strip() != "":
-            params["q"] = str(q).strip()
-        if category is not None and str(category).strip() != "":
-            params["category"] = str(category).strip()
-        if supplier_id is not None and str(supplier_id).strip() != "":
-            params["supplier_id"] = str(supplier_id).strip()
-        if include_discontinued is not None:
-            params["include_discontinued"] = (
-                "true" if include_discontinued else "false"
+        normalized_q = _optional_string("q", q)
+        normalized_category = _optional_string("category", category)
+        normalized_supplier_id = _optional_string("supplier_id", supplier_id)
+        normalized_min_price = _optional_price("min_price", min_price)
+        normalized_max_price = _optional_price("max_price", max_price)
+
+        if (
+            normalized_min_price is not None
+            and normalized_max_price is not None
+            and normalized_min_price > normalized_max_price
+        ):
+            raise InvalidProductArgumentError(
+                "min_price must be less than or equal to max_price."
             )
-        if min_price is not None:
-            params["min_price"] = min_price
-        if max_price is not None:
-            params["max_price"] = max_price
+
+        params: dict[str, Any] = {}
+        if normalized_q is not None:
+            params["q"] = normalized_q
+        if normalized_category is not None:
+            params["category"] = normalized_category
+        if normalized_supplier_id is not None:
+            params["supplier_id"] = normalized_supplier_id
+        if include_discontinued is not None:
+            if not isinstance(include_discontinued, bool):
+                raise InvalidProductArgumentError(
+                    "include_discontinued must be a boolean."
+                )
+            params["include_discontinued"] = "true" if include_discontinued else "false"
+        if normalized_min_price is not None:
+            params["min_price"] = normalized_min_price
+        if normalized_max_price is not None:
+            params["max_price"] = normalized_max_price
         if limit is not None:
-            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
-                raise ProductApiResponseError(
-                    "limit must be a positive integer.",
-                    code="INVALID_ARGUMENT",
+            if (
+                not isinstance(limit, int)
+                or isinstance(limit, bool)
+                or not 1 <= limit <= 100
+            ):
+                raise InvalidProductArgumentError(
+                    "limit must be an integer from 1 to 100."
                 )
             params["limit"] = limit
         if offset is not None:
-            if (
-                not isinstance(offset, int)
-                or isinstance(offset, bool)
-                or offset < 0
-            ):
-                raise ProductApiResponseError(
-                    "offset must be a non-negative integer.",
-                    code="INVALID_ARGUMENT",
+            if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+                raise InvalidProductArgumentError(
+                    "offset must be a non-negative integer."
                 )
             params["offset"] = offset
-        if sort is not None and str(sort).strip() != "":
-            params["sort"] = str(sort).strip()
+        normalized_sort = _optional_string("sort", sort)
+        if normalized_sort is not None:
+            if normalized_sort not in _SORT_VALUES:
+                raise InvalidProductArgumentError(
+                    "sort must use a supported Product API sort field."
+                )
+            params["sort"] = normalized_sort
 
         # Ensure unused official params stay documented for readers.
         assert set(params).issubset(set(_LIST_PARAM_NAMES))
@@ -230,10 +300,6 @@ class ProductApiClient:
             raise ProductApiResponseError(
                 "The product service returned an invalid product payload."
             ) from exc
-        if "id" not in product and "sku" not in product:
-            raise ProductApiResponseError(
-                "The product service returned an incomplete product payload."
-            )
         return product
 
     def _request_json(

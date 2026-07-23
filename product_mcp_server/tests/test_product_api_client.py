@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from product_mcp_server.app.exceptions import (
+    InvalidProductArgumentError,
     InvalidProductIdentifierError,
     ProductApiConnectionError,
     ProductApiResponseError,
@@ -138,6 +139,66 @@ class TestListProducts:
         assert "name" in result["results"][0]
         client.close()
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"q": 12}, "q must be a string"),
+            ({"include_discontinued": "yes"}, "must be a boolean"),
+            ({"min_price": -1}, "non-negative"),
+            ({"max_price": float("inf")}, "finite"),
+            ({"min_price": 20, "max_price": 10}, "less than or equal"),
+            ({"limit": 0}, "from 1 to 100"),
+            ({"limit": 101}, "from 1 to 100"),
+            ({"offset": -1}, "non-negative"),
+            ({"sort": "price"}, "supported"),
+        ],
+    )
+    def test_rejects_invalid_filters_without_network(
+        self,
+        kwargs: dict[str, object],
+        message: str,
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("network must not be called for invalid filters")
+
+        client = make_client(handler)
+        with pytest.raises(InvalidProductArgumentError) as exc_info:
+            client.list_products(**kwargs)  # type: ignore[arg-type]
+        assert exc_info.value.code == "INVALID_ARGUMENT"
+        assert message in exc_info.value.message
+        client.close()
+
+    def test_forwards_all_validated_filter_types(self) -> None:
+        captured: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(dict(request.url.params))
+            return httpx.Response(
+                200,
+                json={"count": 0, "limit": 100, "offset": 0, "results": []},
+            )
+
+        client = make_client(handler)
+        client.list_products(
+            category="Laptops",
+            supplier_id="SUP-HBT-001",
+            include_discontinued=True,
+            min_price=1,
+            max_price=1000.5,
+            limit=100,
+            sort="-unit_price",
+        )
+        assert captured == {
+            "category": "Laptops",
+            "supplier_id": "SUP-HBT-001",
+            "include_discontinued": "true",
+            "min_price": "1.0",
+            "max_price": "1000.5",
+            "limit": "100",
+            "sort": "-unit_price",
+        }
+        client.close()
+
 
 class TestGetProduct:
     def test_get_by_numeric_id(self) -> None:
@@ -265,6 +326,65 @@ class TestErrorHandling:
         with pytest.raises(ProductApiResponseError):
             client.list_products()
         client.close()
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"count": 0, "limit": 20, "offset": 0, "results": [{}]},
+            {"count": True, "limit": 20, "offset": 0, "results": []},
+            {"count": 0, "limit": 101, "offset": 0, "results": []},
+            {"count": 0, "limit": 20, "offset": -1, "results": []},
+            {"count": 0, "limit": 20, "results": []},
+        ],
+    )
+    def test_rejects_malformed_product_list_payload(
+        self,
+        payload: dict[str, object],
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = make_client(handler)
+        with pytest.raises(ProductApiResponseError) as exc_info:
+            client.list_products()
+        assert exc_info.value.code == "INVALID_PRODUCT_RESPONSE"
+        client.close()
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"id": 1, "sku": "HB-LAP-1001"},
+            {"id": True, "sku": "HB-LAP-1001", "name": "Laptop"},
+            {"id": 1, "sku": [], "name": "Laptop"},
+            {"id": 1, "sku": "HB-LAP-1001", "name": "Laptop", "tags": "tag"},
+        ],
+    )
+    def test_rejects_malformed_product_detail_payload(
+        self,
+        payload: dict[str, object],
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = make_client(handler)
+        with pytest.raises(ProductApiResponseError) as exc_info:
+            client.get_product(1)
+        assert exc_info.value.code == "INVALID_PRODUCT_RESPONSE"
+        client.close()
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "not-a-url",
+            "ftp://product-api.test",
+            "http://user:password@product-api.test",
+            "http://product-api.test?token=secret",
+            "http://product-api.test#fragment",
+        ],
+    )
+    def test_rejects_invalid_base_url(self, base_url: str) -> None:
+        with pytest.raises(ValueError):
+            ProductApiClient(base_url)
 
     def test_connection_error_does_not_return_empty_list(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

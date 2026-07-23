@@ -57,7 +57,9 @@ class FakeProductApiClient:
         list_error: Exception | None = None,
         get_error: Exception | None = None,
     ) -> None:
-        self.products = list(products) if products is not None else [dict(SAMPLE_PRODUCT)]
+        self.products = (
+            list(products) if products is not None else [dict(SAMPLE_PRODUCT)]
+        )
         self.list_error = list_error
         self.get_error = get_error
         self.list_calls: list[dict[str, Any]] = []

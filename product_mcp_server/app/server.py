@@ -48,6 +48,7 @@ def create_mcp_server(
         streamable_http_path="/mcp",
         log_level=settings.log_level,  # type: ignore[arg-type]
         stateless_http=True,
+        json_response=True,
     )
     register_product_tools(mcp, product_client)
     _register_health_route(mcp)
@@ -85,11 +86,10 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging(settings.log_level)
 
     logger.info(
-        "Starting Product MCP Server transport=%s host=%s port=%s api=%s",
+        "Starting Product MCP Server transport=%s host=%s port=%s",
         settings.mcp_transport,
         settings.mcp_host,
         settings.mcp_port,
-        settings.product_api_url,
     )
 
     mcp, client = create_mcp_server(settings)

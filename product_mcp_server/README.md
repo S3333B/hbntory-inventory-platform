@@ -63,11 +63,11 @@ List products from `GET /api/v1/products`.
 | `category` | string | Exact category |
 | `supplier_id` | string | Exact supplier id |
 | `include_discontinued` | boolean | Default false on the API side |
-| `min_price` | number | Minimum unit price |
-| `max_price` | number | Maximum unit price |
-| `limit` | integer | Page size (API max 100) |
+| `min_price` | number | Finite non-negative minimum unit price |
+| `max_price` | number | Finite non-negative maximum; must be >= `min_price` |
+| `limit` | integer | Page size from 1 to 100 |
 | `offset` | integer | Pagination offset |
-| `sort` | string | e.g. `name`, `-unit_price` |
+| `sort` | string | Official field, e.g. `name`, `-unit_price` |
 
 **Successful output:**
 
@@ -93,7 +93,7 @@ Retrieve one product from `GET /api/v1/products/{id_or_sku}`.
 
 | Parameter | Type | Notes |
 | --- | --- | --- |
-| `id_or_sku` | string | Numeric id (`"1"`) or SKU (`"HB-LAP-1001"`) |
+| `id_or_sku` | string or integer | Numeric id (`1` or `"1"`) or SKU (`"HB-LAP-1001"`) |
 
 **Successful output:**
 
@@ -227,12 +227,12 @@ MCP Inspector is optional and is **not** a project dependency. Requires Node.js
 with `npx` available:
 
 ```bash
-npx -y @modelcontextprotocol/inspector http://localhost:8001/mcp
+npx -y @modelcontextprotocol/inspector
 ```
 
 In the Inspector UI:
 
-1. Connect to the Streamable HTTP endpoint.
+1. Select `Streamable HTTP` and connect to `http://localhost:8001/mcp`.
 2. List tools — expect only `list_products` and `get_product_details`.
 3. Call `list_products` with `{ "limit": 2 }`.
 4. Call `get_product_details` with `{ "id_or_sku": "1" }`.
@@ -240,14 +240,44 @@ In the Inspector UI:
 6. Call `get_product_details` with `{ "id_or_sku": "999999" }` → `PRODUCT_NOT_FOUND`.
 7. Call `get_product_details` with `{ "id_or_sku": "" }` → `INVALID_PRODUCT_REFERENCE`.
 
+The same checks can be run directly with the Inspector CLI:
+
+```bash
+# Inspect the read-only tool surface.
+npx -y @modelcontextprotocol/inspector --cli http://localhost:8001/mcp \
+  --transport http --method tools/list
+
+# List two products.
+npx -y @modelcontextprotocol/inspector --cli http://localhost:8001/mcp \
+  --transport http --method tools/call --tool-name list_products \
+  --tool-arg limit=2
+
+# Retrieve a product by numeric id or SKU.
+npx -y @modelcontextprotocol/inspector --cli http://localhost:8001/mcp \
+  --transport http --method tools/call --tool-name get_product_details \
+  --tool-arg id_or_sku=1
+npx -y @modelcontextprotocol/inspector --cli http://localhost:8001/mcp \
+  --transport http --method tools/call --tool-name get_product_details \
+  --tool-arg id_or_sku=HB-LAP-1001
+
+# Controlled errors: unknown product, then empty identifier.
+npx -y @modelcontextprotocol/inspector --cli http://localhost:8001/mcp \
+  --transport http --method tools/call --tool-name get_product_details \
+  --tool-arg id_or_sku=999999
+npx -y @modelcontextprotocol/inspector --cli http://localhost:8001/mcp \
+  --transport http --method tools/call --tool-name get_product_details \
+  --tool-arg 'id_or_sku='
+```
+
 ### 4. Product API intentionally unavailable
 
 Stop the API and call a tool:
 
 ```bash
 docker compose stop external-products-api
-# Then call list_products through Inspector or restart MCP after stop.
-# Expected tool error code: PRODUCT_API_UNAVAILABLE
+npx -y @modelcontextprotocol/inspector --cli http://localhost:8001/mcp \
+  --transport http --method tools/call --tool-name list_products
+# Expected tool error code: PRODUCT_API_UNAVAILABLE.
 docker compose start external-products-api
 ```
 
@@ -272,9 +302,9 @@ Tests use:
 - no real network access.
 
 Covered scenarios include successful list/detail, empty list, SKU lookup,
-not found, invalid identifiers, connection errors, timeouts, unexpected HTTP
-status, invalid JSON, stable output shapes, MCP tool registration, controlled
-error propagation, and absence of write tools.
+validated filters and response shapes, not found, invalid identifiers,
+connection errors, timeouts, unexpected HTTP status, invalid JSON, MCP tool
+registration, controlled error propagation, and absence of write tools.
 
 ## Limits of this task
 
