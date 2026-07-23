@@ -1,0 +1,7 @@
+# Compatible with Python 3.10 and newer.
+# Official MCP Python SDK (includes FastMCP and Streamable HTTP support).
+mcp==1.28.1
+# Explicit HTTP client used by ProductApiClient (also a transitive MCP dependency).
+httpx==0.28.1
+# Test runner (aligned with the Backoffice test stack).
+pytest==8.3.4

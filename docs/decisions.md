@@ -71,3 +71,16 @@
 - **Choice:** Task 1 uses SQLAlchemy 2.x directly and `Base.metadata.create_all()` to bootstrap new databases. No Alembic dependency is introduced yet.
 - **Benefits:** the first schema is reproducible with the minimum dependency set and remains independent from Flask routes or application startup.
 - **Trade-offs:** `create_all()` is not a migration system and cannot safely evolve an existing schema. A versioned migration tool must be selected before later schema changes.
+
+## ADR 13 — Product MCP Server uses official MCP SDK + Streamable HTTP + httpx
+
+- **Choice:** implement the Product MCP Server with the official Python MCP SDK (`mcp` / FastMCP), transport **Streamable HTTP** on path `/mcp`, and an internal **httpx** `ProductApiClient` for the External Product API. Default process port is `8001`.
+- **Benefits:** matches ADR 5 for container-to-container AI → MCP communication; avoids a hand-rolled MCP protocol; httpx provides explicit timeouts and a mockable transport for network-free tests; tool handlers accept an injectable client.
+- **Trade-offs:** Streamable HTTP requires a reachable HTTP port and Compose networking; stdio remains available via `MCP_TRANSPORT=stdio` for local experiments but is not the production path between containers.
+- **Scope reminder:** Task 4 implements only product tools (`list_products`, `get_product_details`). Stock tools and AI integration remain separate.
+
+## ADR 14 — Product MCP Compose service uses in-network Product API URL
+
+- **Choice:** the `product-mcp-server` Compose service sets `PRODUCT_API_URL` to `http://external-products-api:5000` (via `PRODUCT_API_URL_DOCKER`) instead of reusing a host-oriented `PRODUCT_API_URL=http://localhost:5001`.
+- **Benefits:** containers reach the official API by Compose DNS without depending on published host ports; local host clients keep using `localhost:5001`.
+- **Trade-offs:** two related variables must stay documented so developers do not point the MCP container at `localhost` by mistake.

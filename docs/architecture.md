@@ -92,21 +92,27 @@ Both the Backoffice and Product MCP Server consume this API. They must read its 
 | HBntory containers access an API exposed separately on the host | `http://host.docker.internal:5001` |
 | All services directly share the API's Docker network | `http://external-products-api:5000` |
 
-The future HTTP client must use an explicit timeout and convert slow responses, network timeouts, unavailable services, forced HTTP errors, and invalid JSON into controlled errors. This client is not implemented during Task 0.
+The Product MCP Server HTTP client (`ProductApiClient`) uses an explicit timeout (`PRODUCT_API_TIMEOUT`) and converts slow responses, network timeouts, unavailable services, forced HTTP errors, and invalid JSON into controlled errors. It never silently returns an empty list on connection failure.
 
 ### Product MCP Server
 
-Planned technologies: Python, the MCP Python SDK, FastMCP, and MCP Streamable HTTP between containers.
+Technologies: Python, the official MCP Python SDK (FastMCP), httpx, and MCP Streamable HTTP between containers (`/mcp`).
 
-The server exposes only these required tools:
+**Implemented (Task 4 — product tools):**
 
-- `list_products`;
-- `get_product_details`;
+- `list_products` — read-only list/filter against `GET /api/v1/products`;
+- `get_product_details` — read-only detail against `GET /api/v1/products/{id_or_sku}`.
+
+Internal layout: configuration, explicit exceptions, exchange models, a reusable `ProductApiClient`, MCP tool handlers, and the FastMCP entry point. The client is injectable so tests never require the network.
+
+**Planned later (stock tools, not in Task 4):**
+
 - `get_stock_by_product`;
 - `get_branch_stock`;
-- `check_shopping_list`.
+- `check_shopping_list`;
+- `resolve_branch`.
 
-It reads products from the official external Product API and reads stock from controlled Backoffice endpoints. It returns structured errors, never modifies the Product API or stock, persists no catalog data, and has no direct SQL access to PostgreSQL.
+Product tools read from the official external Product API only. Future stock tools will read through controlled Backoffice endpoints. The server returns structured errors, never modifies the Product API or stock, persists no catalog data, and has no direct SQL access to PostgreSQL.
 
 ### AI Query Service and public interface
 
@@ -120,7 +126,7 @@ The public page contains only a question field, a submit button, a loading indic
 
 ### Docker Compose
 
-Docker Compose currently defines PostgreSQL and the official Product API without modifying the external source. Backoffice, MCP, and AI services will be added in later tasks. The Product API may either share a Docker network or run separately with its own provided Docker Compose configuration.
+Docker Compose defines PostgreSQL, the official Product API (built from the official GitHub source without modification), and the Product MCP Server. Backoffice and AI services will be added in later tasks. The Product MCP Server reaches the catalog at `http://external-products-api:5000` on the Compose network and exposes Streamable HTTP on port `8001` (`/mcp`).
 
 ## Data ownership
 

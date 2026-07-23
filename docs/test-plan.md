@@ -43,12 +43,18 @@ This plan identifies the critical MVP scenarios. Exact test files and tools will
 | Scenario | Expected result |
 | --- | --- |
 | Call `list_products`. | MCP returns products supplied by `GET /api/v1/products`. |
+| Call `list_products` with no matches. | Structured success with an empty `results` list (not an error). |
 | Call `get_product_details` with a numeric ID. | MCP returns the matching external product details. |
 | Call `get_product_details` with a SKU. | MCP resolves and returns the matching external product details. |
-| Call `get_stock_by_product`. | MCP returns stock through the read-only Backoffice endpoint. |
-| Call `get_branch_stock`. | MCP returns the branch stock without direct database access. |
-| Call `check_shopping_list` with positive quantities. | MCP reports availability for every requested item. |
-| Attempt to change stock through MCP. | No write tool or write endpoint is available. |
+| Call `get_product_details` for an unknown product. | Structured `PRODUCT_NOT_FOUND` error; no invented product. |
+| Call `get_product_details` with an empty or invalid id. | Structured `INVALID_PRODUCT_REFERENCE` error without calling the API when possible. |
+| Product API connection failure or timeout. | Structured `PRODUCT_API_UNAVAILABLE` or `PRODUCT_API_TIMEOUT`; never a silent empty list. |
+| Invalid JSON or unexpected HTTP from Product API. | Structured `INVALID_PRODUCT_RESPONSE`. |
+| Call `get_stock_by_product`. | MCP returns stock through the read-only Backoffice endpoint (later task). |
+| Call `get_branch_stock`. | MCP returns the branch stock without direct database access (later task). |
+| Call `check_shopping_list` with positive quantities. | MCP reports availability for every requested item (later task). |
+| Attempt to change stock or products through MCP. | No write tool or write endpoint is available. |
+| Automated Product MCP unit tests. | Pass without real network access (`product_mcp_server/tests`). |
 
 ## Branch resolution scenarios
 
