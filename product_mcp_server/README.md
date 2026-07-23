@@ -153,11 +153,13 @@ URL examples for `PRODUCT_API_URL`:
 | --- | --- |
 | Process on the host | `http://localhost:5001` |
 | Container → host-published API | `http://host.docker.internal:5001` |
-| Container on the Compose network | `http://external-products-api:5000` |
+| Container on the Compose network | `http://external-products-api:${HBN_PRODUCTS_PORT:-5000}` |
 
-The Product MCP Server container uses `PRODUCT_API_URL_DOCKER` /
-`http://external-products-api:5000` so a host-oriented `PRODUCT_API_URL` in
-`.env` does not break in-network calls.
+The Product MCP Server container uses `PRODUCT_API_URL_DOCKER` when it is
+explicitly set. Otherwise, Compose derives its internal URL as
+`http://external-products-api:${HBN_PRODUCTS_PORT:-5000}`. This keeps the MCP
+upstream URL aligned with the Product API container port without confusing it
+with `PRODUCT_API_HOST_PORT`, which is the separately published host port.
 
 ## Installation
 

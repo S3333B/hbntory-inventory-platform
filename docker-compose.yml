@@ -7,7 +7,7 @@
 #
 # Official source: https://github.com/hbtn-edu/hbntory-products-api
 # Official host URL: http://localhost:5001
-# In-network service URL: http://external-products-api:5000
+# In-network service URL: http://external-products-api:${HBN_PRODUCTS_PORT:-5000}
 # MCP Streamable HTTP (host): http://localhost:8001/mcp
 # MCP Streamable HTTP (network): http://product-mcp-server:8001/mcp
 
@@ -64,7 +64,7 @@ services:
     image: hbntory-product-mcp-server:local
     container_name: hbntory-product-mcp-server
     environment:
-      PRODUCT_API_URL: ${PRODUCT_API_URL_DOCKER:-http://external-products-api:5000}
+      PRODUCT_API_URL: ${PRODUCT_API_URL_DOCKER:-http://external-products-api:${HBN_PRODUCTS_PORT:-5000}}
       PRODUCT_API_TIMEOUT: ${PRODUCT_API_TIMEOUT:-5.0}
       MCP_HOST: 0.0.0.0
       MCP_PORT: ${MCP_PORT:-8001}
