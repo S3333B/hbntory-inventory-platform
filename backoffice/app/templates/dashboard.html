@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} — HBntory</title>
+  </head>
+  <body>
+    <main>
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+      <p>Signed in as {{ current_user.username }}.</p>
+      <form method="post" action="{{ url_for('auth.logout') }}">
+        {{ logout_form.hidden_tag() }}
+        {{ logout_form.submit() }}
+      </form>
+    </main>
+  </body>
+</html>
