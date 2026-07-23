@@ -78,7 +78,7 @@ An unknown product returns HTTP `404`. The API also provides these test scenario
 - `GET /api/v1/products?simulate_delay_ms=750` simulates a slow response;
 - `GET /api/v1/products?force_error=true` forces an HTTP error.
 
-The future HTTP client must handle an empty product list, HTTP `404`, temporary unavailability, slow responses, explicit network timeouts, forced HTTP errors, and invalid or unexpected JSON. It must use an explicit timeout and return a controlled HBntory error. No HTTP client is implemented during Task 0.
+The Product MCP Server `ProductApiClient` handles an empty product list, HTTP `404`, temporary unavailability, slow responses, explicit network timeouts, forced HTTP errors, and invalid or unexpected JSON. It uses `PRODUCT_API_TIMEOUT` and returns controlled HBntory errors (`PRODUCT_API_UNAVAILABLE`, `PRODUCT_API_TIMEOUT`, `INVALID_PRODUCT_RESPONSE`, `PRODUCT_NOT_FOUND`, `INVALID_PRODUCT_REFERENCE`). It never silently returns an empty list on connection failure.
 
 ## HBntory response shapes
 
@@ -299,14 +299,16 @@ MCP tool failures use a structured result with a stable code and clear message:
 
 ### `list_products`
 
-- **Input:** optional official Product API search, filter, or pagination parameters such as `q`, `limit`, and `offset`.
-- **Output:** a list of products returned by the external Product API.
+- **Status:** implemented by the Product MCP Server (Task 4).
+- **Input:** optional official Product API search, filter, or pagination parameters: `q`, `category`, `supplier_id`, `include_discontinued`, `min_price`, `max_price`, `limit`, `offset`, `sort`.
+- **Output:** structured success with the official paginated shape (`count`, `limit`, `offset`, `results`).
 - **Errors:** `PRODUCT_API_UNAVAILABLE`, `PRODUCT_API_TIMEOUT`, `INVALID_PRODUCT_RESPONSE`, `INVALID_ARGUMENT`.
 
 ### `get_product_details`
 
-- **Input:** `{ "id_or_sku": 1 }` or `{ "id_or_sku": "HB-LAP-1001" }`.
-- **Output:** the official API details for the requested numeric ID or SKU.
+- **Status:** implemented by the Product MCP Server (Task 4).
+- **Input:** `{ "id_or_sku": "1" }` or `{ "id_or_sku": "HB-LAP-1001" }`.
+- **Output:** structured success with the official product object (detail may include nested `supplier`).
 - **Errors:** `PRODUCT_NOT_FOUND`, `PRODUCT_API_UNAVAILABLE`, `PRODUCT_API_TIMEOUT`, `INVALID_PRODUCT_RESPONSE`, `INVALID_PRODUCT_REFERENCE`.
 
 ### `get_stock_by_product`

@@ -9,7 +9,7 @@ HBntory is a two-week inventory management project. It combines an internal stoc
 
 ## Current status
 
-> The External Product API Docker foundation and Task 1 database foundation are available. Backoffice routes, authentication, MCP, and AI features are developed separately.
+> The External Product API Docker foundation, Task 1 database foundation, and Task 4 Product MCP Server (read-only product tools) are available. Backoffice routes, authentication, stock MCP tools, and AI features are developed separately.
 
 ## Architecture summary
 
@@ -87,6 +87,7 @@ hbntory-inventory-platform/
 - [Team organization](docs/team-organization.md)
 - [Test plan](docs/test-plan.md)
 - [External Product API Docker foundation](docs/external-product-api.md)
+- [Product MCP Server](product_mcp_server/README.md)
 
 ## External dependency
 
@@ -163,6 +164,27 @@ Official routes used by this foundation:
 - `GET /api/v1/products/{id_or_sku}`
 
 The catalog is read-only. HBntory never stores product metadata from this API in PostgreSQL.
+
+## Product MCP Server (Task 4)
+
+Read-only MCP tools (`list_products`, `get_product_details`) consume the official Product API through an internal httpx client. Full setup, manual tests, and limits: [product_mcp_server/README.md](product_mcp_server/README.md).
+
+```bash
+# Install MCP server dependencies
+pip install -r product_mcp_server/requirements.txt
+
+# Start API + MCP via Compose
+docker compose up --build -d external-products-api product-mcp-server
+curl -sS http://localhost:8001/health
+
+# Or run MCP on the host against the published API
+export PRODUCT_API_URL=http://localhost:5001
+export MCP_PORT=8001
+python -m product_mcp_server.app.server
+
+# Automated tests (no network)
+python -m pytest product_mcp_server/tests -v
+```
 
 ## Contributing
 

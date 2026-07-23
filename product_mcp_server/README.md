@@ -1,51 +1,294 @@
 # Product MCP Server
 
-The future Python MCP server provides a controlled tool layer between the AI agent and HBntory data sources. It consumes the official read-only [hbtn-edu/hbntory-products-api](https://github.com/hbtn-edu/hbntory-products-api) service.
+Read-only MCP tool layer between future HBntory AI agents and the official
+External Product API
+([hbtn-edu/hbntory-products-api](https://github.com/hbtn-edu/hbntory-products-api)).
 
-## Planned technology
+Responsible: Ulysse (Task 4 — Product MCP Server).
 
-- Python;
-- MCP Python SDK;
-- FastMCP;
-- MCP Streamable HTTP between containers.
+## Role
 
-## Product API connection
+- expose controlled product tools to an AI agent over MCP;
+- call the official External Product API through an internal HTTP client;
+- return structured successes and errors the agent can ground answers on;
+- never store product catalog data in PostgreSQL;
+- never write to the Product API;
+- never connect to PostgreSQL;
+- never expose stock tools in this task (stock tools come later).
 
-The server reads the official API base URL only from `PRODUCT_API_URL`. Depending on the execution mode, it may be `http://localhost:5001`, `http://host.docker.internal:5001`, or `http://external-products-api:5000`.
+## Architecture flow
 
-To start the official API from this monorepo (Docker foundation):
+```text
+AI agent / MCP Inspector
+        |  MCP Streamable HTTP  (/mcp)
+        v
+Product MCP Server (FastMCP)
+        |  ProductApiClient (httpx, explicit timeout)
+        v
+External Product API  GET /api/v1/products[...]
+```
+
+Separation of concerns:
+
+| Module | Responsibility |
+| --- | --- |
+| `app/config.py` | Environment settings |
+| `app/exceptions.py` | Explicit client errors |
+| `app/models.py` | Stable product / list shapes |
+| `app/product_api_client.py` | Reusable read-only HTTP client |
+| `app/tools.py` | MCP tool registration and handlers |
+| `app/server.py` | FastMCP entry point |
+| `tests/` | Network-free automated tests |
+
+## Technology
+
+- Python 3.10+
+- Official MCP Python SDK (`mcp`) with FastMCP
+- Transport: **MCP Streamable HTTP** (ADR 5), path `/mcp`
+- Optional local transport: `stdio` via `MCP_TRANSPORT=stdio`
+- HTTP client: **httpx** with an explicit timeout
+- Tests: **pytest** with `httpx.MockTransport` and injectable fakes
+
+## MCP tools (read-only)
+
+### `list_products`
+
+List products from `GET /api/v1/products`.
+
+**Inputs** (all optional, official API parameters only):
+
+| Parameter | Type | Notes |
+| --- | --- | --- |
+| `q` | string | Text search |
+| `category` | string | Exact category |
+| `supplier_id` | string | Exact supplier id |
+| `include_discontinued` | boolean | Default false on the API side |
+| `min_price` | number | Minimum unit price |
+| `max_price` | number | Maximum unit price |
+| `limit` | integer | Page size (API max 100) |
+| `offset` | integer | Pagination offset |
+| `sort` | string | e.g. `name`, `-unit_price` |
+
+**Successful output:**
+
+```json
+{
+  "status": "success",
+  "data": {
+    "count": 1,
+    "limit": 20,
+    "offset": 0,
+    "results": [ { "id": 1, "sku": "HB-LAP-1001", "name": "..." } ]
+  }
+}
+```
+
+An empty `results` array is a valid success (no products matched), not a failure.
+
+### `get_product_details`
+
+Retrieve one product from `GET /api/v1/products/{id_or_sku}`.
+
+**Input:**
+
+| Parameter | Type | Notes |
+| --- | --- | --- |
+| `id_or_sku` | string | Numeric id (`"1"`) or SKU (`"HB-LAP-1001"`) |
+
+**Successful output:**
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": 1,
+    "sku": "HB-LAP-1001",
+    "name": "Holberton Student Laptop 14",
+    "supplier": { "id": "SUP-HBT-001", "name": "Holberton Tools Co." }
+  }
+}
+```
+
+The tool never invents a product and never fills missing catalog fields.
+
+## Structured errors
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "PRODUCT_NOT_FOUND",
+    "message": "Product not found."
+  }
+}
+```
+
+| Code | When |
+| --- | --- |
+| `PRODUCT_NOT_FOUND` | Official API returns HTTP 404 |
+| `INVALID_PRODUCT_REFERENCE` | Empty, whitespace-only, non-positive, or unsafe id/SKU |
+| `PRODUCT_API_UNAVAILABLE` | Connection failure or HTTP 5xx |
+| `PRODUCT_API_TIMEOUT` | Client timeout exceeded |
+| `INVALID_PRODUCT_RESPONSE` | Unexpected HTTP status or invalid/malformed JSON |
+| `INVALID_ARGUMENT` | Invalid list argument (e.g. non-positive limit) |
+| `INTERNAL_ERROR` | Unexpected handler failure (no stack trace returned) |
+
+Server-side logs may include exception types for operators. Tool results never
+include secrets, stack traces, or credentials.
+
+## Environment variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PRODUCT_API_URL` | `http://localhost:5001` | Base URL of the official Product API |
+| `PRODUCT_API_TIMEOUT` | `5.0` | HTTP timeout in seconds |
+| `MCP_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` in Docker) |
+| `MCP_PORT` | `8001` | Listen port |
+| `MCP_TRANSPORT` | `streamable-http` | `streamable-http` or `stdio` |
+| `MCP_LOG_LEVEL` | `INFO` | Logging level |
+
+URL examples for `PRODUCT_API_URL`:
+
+| Caller location | Value |
+| --- | --- |
+| Process on the host | `http://localhost:5001` |
+| Container → host-published API | `http://host.docker.internal:5001` |
+| Container on the Compose network | `http://external-products-api:5000` |
+
+The Product MCP Server container uses `PRODUCT_API_URL_DOCKER` /
+`http://external-products-api:5000` so a host-oriented `PRODUCT_API_URL` in
+`.env` does not break in-network calls.
+
+## Installation
+
+From the monorepo root:
 
 ```bash
-# from the repository root
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r product_mcp_server/requirements.txt
+```
+
+## Start the External Product API
+
+```bash
 docker compose up --build -d external-products-api
 curl -sS http://localhost:5001/health
 ```
 
-See [docs/external-product-api.md](../docs/external-product-api.md) for the full start, test, and stop procedure.
+## Start the Product MCP Server (local process)
 
-The future HTTP client will use an explicit timeout. It will handle empty lists, unknown products, API unavailability, slow responses, network timeouts, forced HTTP errors, and invalid JSON with structured errors.
+```bash
+export PRODUCT_API_URL=http://localhost:5001
+export PRODUCT_API_TIMEOUT=5.0
+export MCP_HOST=127.0.0.1
+export MCP_PORT=8001
+export MCP_TRANSPORT=streamable-http
+python -m product_mcp_server.app.server
+```
 
-## Minimum product tools
+Health check:
 
-- `list_products`;
-- `get_product_details`.
+```bash
+curl -sS http://localhost:8001/health
+```
 
-These tools use the official product-list and product-detail endpoints. Categories, suppliers, and advanced filters are optional for the MVP.
+## Start with Docker Compose
 
-## Planned stock tools
+```bash
+docker compose up --build -d external-products-api product-mcp-server
+docker compose ps
+curl -sS http://localhost:8001/health
+```
 
-- `get_stock_by_product`;
-- `get_branch_stock`;
-- `check_shopping_list`.
+Service dependencies:
 
-## Data access rules
+- `product-mcp-server` waits until `external-products-api` is healthy;
+- `product-mcp-server` has **no** PostgreSQL environment variables;
+- existing `external-products-api` and `postgres` services remain unchanged in behaviour.
 
-- product tools read from the official external Product API;
-- stock tools read through authenticated internal Backoffice endpoints;
-- tool failures return clear, structured errors;
-- MCP never changes stock;
-- MCP never modifies or copies the external API;
-- MCP persists no product data locally;
-- MCP never connects directly to PostgreSQL.
+## Manual tests
 
-No MCP tool or server implementation is created during Task 0.
+### 1. External Product API health
+
+```bash
+curl -sS -i http://localhost:5001/health
+```
+
+### 2. Product MCP Server health
+
+```bash
+curl -sS -i http://localhost:8001/health
+```
+
+### 3. Inspect tools with MCP Inspector (optional, npx)
+
+MCP Inspector is optional and is **not** a project dependency. Requires Node.js
+with `npx` available:
+
+```bash
+npx -y @modelcontextprotocol/inspector http://localhost:8001/mcp
+```
+
+In the Inspector UI:
+
+1. Connect to the Streamable HTTP endpoint.
+2. List tools — expect only `list_products` and `get_product_details`.
+3. Call `list_products` with `{ "limit": 2 }`.
+4. Call `get_product_details` with `{ "id_or_sku": "1" }`.
+5. Call `get_product_details` with `{ "id_or_sku": "HB-LAP-1001" }`.
+6. Call `get_product_details` with `{ "id_or_sku": "999999" }` → `PRODUCT_NOT_FOUND`.
+7. Call `get_product_details` with `{ "id_or_sku": "" }` → `INVALID_PRODUCT_REFERENCE`.
+
+### 4. Product API intentionally unavailable
+
+Stop the API and call a tool:
+
+```bash
+docker compose stop external-products-api
+# Then call list_products through Inspector or restart MCP after stop.
+# Expected tool error code: PRODUCT_API_UNAVAILABLE
+docker compose start external-products-api
+```
+
+### 5. Confirm read-only surface
+
+```bash
+# No write tools are registered. Official Product API rejects writes:
+curl -sS -i -X POST http://localhost:5001/api/v1/products
+```
+
+## Automated tests
+
+```bash
+# from monorepo root, with dependencies installed
+python -m pytest product_mcp_server/tests -v
+```
+
+Tests use:
+
+- `httpx.MockTransport` for the real `ProductApiClient`;
+- `FakeProductApiClient` for tool handlers and FastMCP `call_tool`;
+- no real network access.
+
+Covered scenarios include successful list/detail, empty list, SKU lookup,
+not found, invalid identifiers, connection errors, timeouts, unexpected HTTP
+status, invalid JSON, stable output shapes, MCP tool registration, controlled
+error propagation, and absence of write tools.
+
+## Limits of this task
+
+- stock MCP tools are not implemented;
+- AI Query Service / agent is not implemented;
+- Backoffice authentication and routes are out of scope;
+- no local `Product` table and no catalog persistence;
+- MCP protocol-level transport integration with a live AI client is left to a
+  later task; unit tests cover tool logic and FastMCP registration/call paths.
+
+## Confirmations
+
+- **Read-only:** only `list_products` and `get_product_details` are exposed.
+- **No local product storage:** the server never writes to PostgreSQL and has
+  no database configuration.
+- **Official routes only:** `GET /api/v1/products` and
+  `GET /api/v1/products/{id_or_sku}`.

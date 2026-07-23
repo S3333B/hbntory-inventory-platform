@@ -1,13 +1,15 @@
-# HBntory Docker Compose foundation — External Product API and PostgreSQL.
+# HBntory Docker Compose — External Product API, PostgreSQL, Product MCP Server.
 #
 # Builds the official read-only catalog from hbtn-edu/hbntory-products-api
 # without copying or modifying that repository. PostgreSQL stores HBntory's
-# local users, branches, and stock. Backoffice, MCP, and AI services can be
-# added to this file later.
+# local users, branches, and stock. The Product MCP Server exposes read-only
+# product tools and never receives PostgreSQL credentials.
 #
 # Official source: https://github.com/hbtn-edu/hbntory-products-api
 # Official host URL: http://localhost:5001
 # In-network service URL: http://external-products-api:5000
+# MCP Streamable HTTP (host): http://localhost:8001/mcp
+# MCP Streamable HTTP (network): http://product-mcp-server:8001/mcp
 
 services:
   external-products-api:
@@ -54,6 +56,38 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  product-mcp-server:
+    build:
+      context: .
+      dockerfile: product_mcp_server/Dockerfile
+    image: hbntory-product-mcp-server:local
+    container_name: hbntory-product-mcp-server
+    environment:
+      PRODUCT_API_URL: ${PRODUCT_API_URL_DOCKER:-http://external-products-api:5000}
+      PRODUCT_API_TIMEOUT: ${PRODUCT_API_TIMEOUT:-5.0}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: ${MCP_PORT:-8001}
+      MCP_TRANSPORT: streamable-http
+      MCP_LOG_LEVEL: ${MCP_LOG_LEVEL:-INFO}
+    ports:
+      - "${MCP_HOST_PORT:-8001}:${MCP_PORT:-8001}"
+    depends_on:
+      external-products-api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; port = os.environ.get('MCP_PORT', '8001'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   hbntory-postgres-data:
