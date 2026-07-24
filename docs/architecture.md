@@ -62,8 +62,7 @@ Responsibilities:
 - enforce administrator and common-user roles;
 - manage branches, users, and stock according to role permissions;
 - retrieve product display data from the external Product API;
-- render the internal interface on the server with Jinja;
-- expose controlled, read-only internal stock endpoints for MCP.
+- render the internal interface on the server with Jinja.
 
 Authorization and business rules:
 
@@ -98,21 +97,22 @@ The Product MCP Server HTTP client (`ProductApiClient`) uses an explicit timeout
 
 Technologies: Python, the official MCP Python SDK (FastMCP), httpx, and MCP Streamable HTTP between containers (`/mcp`).
 
-**Implemented (Task 4 — product tools):**
+**Implemented product tools:**
 
 - `list_products` — read-only list/filter against `GET /api/v1/products`;
 - `get_product_details` — read-only detail against `GET /api/v1/products/{id_or_sku}`.
 
-Internal layout: configuration, explicit exceptions, exchange models, a reusable `ProductApiClient`, MCP tool handlers, and the FastMCP entry point. The client is injectable so tests never require the network.
+**Implemented stock tools:**
 
-**Planned later (stock tools, not in Task 4):**
+- `get_product_stock` — positive availability for one external product across branches;
+- `get_branch_stock` — positive product quantities for a branch selected by id or exact name;
+- `check_shopping_list` — deterministic single-branch and multi-branch fulfillment analysis.
 
-- `get_stock_by_product`;
-- `get_branch_stock`;
-- `check_shopping_list`;
-- `resolve_branch`.
+Internal layout separates environment configuration, the read-only SQLAlchemy repository, deterministic stock-query logic, MCP adapters, and the FastMCP entry point. Both the Product API client and stock repository are injectable, so tests use fakes or an isolated SQLite database and require no network.
 
-Product tools read from the official external Product API only. Future stock tools will read through controlled Backoffice endpoints. The server returns structured errors, never modifies the Product API or stock, persists no catalog data, and has no direct SQL access to PostgreSQL.
+Product tools read from the official External Product API only. Stock tools reuse the Backoffice `Branch` and `Stock` SQLAlchemy models without starting Flask. They use fixed parameterized `SELECT` statements against PostgreSQL, omit zero quantities, and never expose SQL supplied by an MCP caller.
+
+Extending the existing internal MCP server is intentionally safer than exposing PostgreSQL to a generic database MCP: the access surface is limited to three contracts, arbitrary SQL is absent, validation is centralized, results and errors are stable for the future agent, and tests are deterministic. This read-only tool boundary is separate from authenticated Backoffice operations: MCP does not apply `admin`/`common` roles, but it also cannot add, remove, update, or delete stock, branches, or users.
 
 ### AI Query Service and public interface
 
@@ -126,15 +126,15 @@ The public page contains only a question field, a submit button, a loading indic
 
 ### Docker Compose
 
-Docker Compose defines PostgreSQL, the official Product API (built from the official GitHub source without modification), and the Product MCP Server. Backoffice and AI services will be added in later tasks. The Product MCP Server reaches the catalog at `http://external-products-api:5000` on the Compose network and exposes Streamable HTTP on port `8001` (`/mcp`).
+Docker Compose defines PostgreSQL, the official Product API (built from the official GitHub source without modification), and the Product MCP Server. Backoffice and AI services will be added in later tasks. The Product MCP Server reaches the catalog through the configured Product API container port, reads stock through `DATABASE_URL`, waits for both dependencies to become healthy, and exposes Streamable HTTP on port `8001` (`/mcp`).
 
 ## Data ownership
 
 | Data | Source of truth | Consumers |
 | --- | --- | --- |
 | Users and roles | PostgreSQL through the Backoffice | Backoffice only |
-| Branches | PostgreSQL through the Backoffice | Backoffice and MCP through internal endpoints |
-| Stock quantities | PostgreSQL through the Backoffice | Backoffice and MCP through internal endpoints |
+| Branches | PostgreSQL through shared SQLAlchemy models | Backoffice and controlled MCP stock queries |
+| Stock quantities | PostgreSQL through shared SQLAlchemy models | Backoffice writes and controlled MCP reads |
 | Canonical numeric `external_product_id` | PostgreSQL stock records | Backoffice and MCP |
 | Product catalog and metadata | Official External Product API | Backoffice and MCP |
 
@@ -154,7 +154,7 @@ Docker Compose defines PostgreSQL, the official Product API (built from the offi
 3. The AI agent analyses the independent question.
 4. The agent calls the required Product MCP Server tools over Streamable HTTP.
 5. MCP retrieves product data from the external Product API.
-6. MCP retrieves stock through read-only internal Backoffice endpoints.
+6. MCP retrieves stock through fixed, parameterized, read-only SQLAlchemy queries.
 7. The agent creates an answer based only on the returned data.
 8. FastAPI returns the response to the browser.
 
@@ -169,5 +169,22 @@ flowchart LR
     PublicBrowser[Public Browser] -->|GET / and POST /api/questions<br/>REST| AI[AI Query Service<br/>FastAPI + public interface]
     AI -->|MCP Streamable HTTP| MCP[Product MCP Server<br/>FastMCP]
     MCP -->|REST read-only products| ProductAPI
-    MCP -->|Internal REST<br/>read-only stock| Backoffice
+    MCP -->|SQLAlchemy SELECT only<br/>fixed stock repository| PostgreSQL
 ```
+
+## Stock-query boundaries
+
+The MCP process imports the existing declarative models and database helpers but does not call the Flask app factory or use a Flask request/session. Its repository opens short-lived SQLAlchemy sessions and runs only predefined `select()` expressions. Query arguments become bound SQL parameters; no endpoint or tool accepts a table name, column name, predicate, or SQL fragment.
+
+Repository failures are converted to `DATABASE_UNAVAILABLE`. Malformed internal records are converted to `INVALID_STOCK_RESPONSE`. Neither result includes a database URL, driver message, SQL statement, traceback, password hash, session data, or secret.
+
+The future AI Query Service is the intended MCP client. This service-to-service read path does not inherit Backoffice roles: `admin` and `common` restrictions still govern authenticated Backoffice write operations, while MCP remains limited by its much smaller read-only tool surface.
+
+## Shopping-list flow
+
+1. Validate a non-empty item list; every `product_id` and `quantity` must be a positive integer and booleans are rejected.
+2. Merge duplicate product identifiers by summing their requested quantities.
+3. Load positive stock for only those external identifiers.
+4. Return every branch that can satisfy the complete normalized list, ordered by `branch_id`.
+5. If no single branch qualifies, allocate each product in ascending product-id order from branches ordered by quantity descending, then `branch_id` ascending.
+6. Return the deterministic plan. If cumulative stock is insufficient, keep the safe partial allocation and report exact requested, available, and missing quantities with `fulfillable: false`.

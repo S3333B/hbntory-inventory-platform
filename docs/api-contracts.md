@@ -1,6 +1,6 @@
 # API and MCP Contracts
 
-These contracts document the official Product API and propose HBntory service boundaries without implementing routes or tools. The official contract is defined by the [API repository](https://github.com/hbtn-edu/hbntory-products-api), its [README](https://github.com/hbtn-edu/hbntory-products-api/blob/main/README.md), and its [API contract](https://github.com/hbtn-edu/hbntory-products-api/blob/main/docs/api_contract.md).
+These contracts document the official Product API, the implemented Product MCP product/stock tools, and the planned public AI endpoint. The official catalog contract is defined by the [API repository](https://github.com/hbtn-edu/hbntory-products-api), its [README](https://github.com/hbtn-edu/hbntory-products-api/blob/main/README.md), and its [API contract](https://github.com/hbtn-edu/hbntory-products-api/blob/main/docs/api_contract.md).
 
 ## Official External Product API
 
@@ -142,82 +142,74 @@ Suggested HTTP errors:
 - `400 INVALID_REQUEST` for malformed JSON or an invalid field type;
 - `422 INSUFFICIENT_INFORMATION` when the question does not contain enough information;
 - `503 PRODUCT_API_UNAVAILABLE` when required product data cannot be reached;
-- `503 DEPENDENCY_UNAVAILABLE` when MCP or the internal stock API cannot be reached;
+- `503 DEPENDENCY_UNAVAILABLE` when MCP or its stock database cannot be reached;
 - `500 INTERNAL_ERROR` for an unexpected failure, with no internal detail exposed.
 
 An unknown product should normally produce a grounded successful answer such as “Product 999 was not found.” If the calling flow needs an error, it uses `404 PRODUCT_NOT_FOUND` consistently.
 
-## Internal read-only branch and stock endpoints
+## Internal stock-query boundary
 
-These endpoints belong to the HBntory Backoffice and are available only to the Product MCP Server through controlled internal communication. They are not External Product API endpoints and are not directly public. The proposed authentication mechanism is an `X-Internal-Token` header containing `INTERNAL_API_TOKEN`. The final mechanism requires team validation.
+Stock is not exposed as a public REST or generic database API. The Product MCP Server imports the shared SQLAlchemy `Branch` and `Stock` mappings and executes a fixed set of parameterized `SELECT` queries. The future AI service sees only the MCP contracts below.
 
-### `GET /internal/branches?name=Lille`
+The boundary is intentionally limited:
 
-Resolves a natural-language branch name before the Product MCP Server calls a stock route that requires a numeric `branch_id`. End users never need to know that internal identifier.
+- no caller-provided SQL, table, column, filter expression, or ordering;
+- no create, add, remove, update, delete, branch-management, or user-management operation;
+- no `User` query and no password, soft-delete, session, secret, or database URL in results;
+- no locally stored product names, descriptions, prices, images, or metadata;
+- database and malformed-response failures are converted to stable public errors.
 
-The endpoint returns only the minimum branch information required for resolution. It does not return product or stock data, does not create or modify a branch, and remains read-only.
+These service tools do not apply the Backoffice `admin` and `common` roles. Those roles protect authenticated Backoffice operations. MCP is instead constrained to the three read-only stock capabilities documented below.
 
-Successful response:
+## MCP tools
 
-```json
-{
-  "status": "success",
-  "data": {
-    "branches": [
-      {
-        "id": 2,
-        "name": "Lille"
-      }
-    ]
-  }
-}
-```
-
-Lookup behaviour:
-
-- the `name` query parameter is required;
-- leading and trailing whitespace is ignored;
-- matching is case-insensitive;
-- an exact normalized match is preferred and returned alone;
-- when no exact match exists, all possible matches are returned;
-- no match returns HTTP `200` with an empty `branches` list;
-- a missing `name` parameter or a value that is empty after trimming returns HTTP `400` using the existing HBntory error shape.
-
-Missing-parameter response:
+MCP tool failures use a structured result with a stable code and clear message:
 
 ```json
 {
   "status": "error",
   "error": {
-    "code": "INVALID_REQUEST",
-    "message": "The name query parameter is required."
+    "code": "PRODUCT_API_UNAVAILABLE",
+    "message": "Product information is temporarily unavailable."
   }
 }
 ```
 
-Branch resolution flow:
+### `list_products`
 
-1. The user mentions a branch, for example “Lille”.
-2. The agent calls the MCP branch-resolution tool.
-3. The Product MCP Server calls `GET /internal/branches?name=Lille`.
-4. It reads the authoritative `branch_id` from the selected result.
-5. It uses that `branch_id` to call the existing internal stock routes.
-6. If no branch matches, the agent returns a controlled unknown-branch response.
-7. If several branches remain possible, the agent asks the user to clarify the choice.
+- **Status:** implemented by the Product MCP Server (Task 4).
+- **Input:** optional official Product API search, filter, or pagination parameters: `q`, `category`, `supplier_id`, `include_discontinued`, `min_price`, `max_price`, `limit`, `offset`, `sort`.
+- **Output:** structured success with the official paginated shape (`count`, `limit`, `offset`, `results`).
+- **Errors:** `PRODUCT_API_UNAVAILABLE`, `PRODUCT_API_TIMEOUT`, `INVALID_PRODUCT_RESPONSE`, `INVALID_ARGUMENT`.
 
-### `GET /internal/stocks/products/{external_product_id}`
+### `get_product_details`
 
-Returns stock for one external product identifier across branches.
+- **Status:** implemented by the Product MCP Server (Task 4).
+- **Input:** `{ "id_or_sku": "1" }` or `{ "id_or_sku": "HB-LAP-1001" }`.
+- **Output:** structured success with the official product object (detail may include nested `supplier`).
+- **Errors:** `PRODUCT_NOT_FOUND`, `PRODUCT_API_UNAVAILABLE`, `PRODUCT_API_TIMEOUT`, `INVALID_PRODUCT_RESPONSE`, `INVALID_PRODUCT_REFERENCE`.
+
+### `get_product_stock`
+
+- **Signature:** `get_product_stock(product_id: int)`.
+- **Input:** `{ "product_id": 12 }`; booleans, null, strings, zero, and negative values are invalid.
+- **Output:**
 
 ```json
 {
   "status": "success",
   "data": {
     "external_product_id": 12,
+    "total_quantity": 8,
     "branches": [
       {
-        "branch_id": 2,
+        "branch_id": 1,
         "branch_name": "Lille",
+        "quantity": 5
+      },
+      {
+        "branch_id": 2,
+        "branch_name": "Roubaix",
         "quantity": 3
       }
     ]
@@ -225,9 +217,13 @@ Returns stock for one external product identifier across branches.
 }
 ```
 
-### `GET /internal/branches/{branch_id}/stocks`
+Only positive quantities are listed. No positive stock returns `STOCK_NOT_FOUND`.
 
-Returns all stock records for one branch. Product details are not returned from the local database.
+### `get_branch_stock`
+
+- **Signature:** `get_branch_stock(branch: str | int)`.
+- **Input:** `{ "branch": 2 }` or `{ "branch": "Lille" }`. Names use a trimmed, case-insensitive exact match.
+- **Output:**
 
 ```json
 {
@@ -245,119 +241,85 @@ Returns all stock records for one branch. Product details are not returned from 
 }
 ```
 
-Suggested internal errors:
+An existing empty branch returns a successful empty `stocks` list. An unknown branch returns `BRANCH_NOT_FOUND`. Product details are not joined into this stock result.
 
-- `401 INTERNAL_AUTH_REQUIRED` for a missing or invalid internal token;
-- `404 BRANCH_NOT_FOUND` for an unknown branch;
-- `400 INVALID_EXTERNAL_PRODUCT_ID` for an invalid external product identifier;
-- `503 DATABASE_UNAVAILABLE` when stock data cannot be read.
+### `check_shopping_list`
 
-Only `GET` operations are exposed. The MCP server cannot create, update, or delete stock.
-
-## MCP tools
-
-MCP tool failures use a structured result with a stable code and clear message:
+- **Signature:** `check_shopping_list(items: list[ShoppingListItem])`, where `ShoppingListItem` contains `product_id: int` and `quantity: int`.
+- **Input:** a non-empty list of strictly positive integer identifiers and quantities:
 
 ```json
 {
-  "status": "error",
-  "error": {
-    "code": "PRODUCT_API_UNAVAILABLE",
-    "message": "Product information is temporarily unavailable."
-  }
+  "items": [
+    {
+      "product_id": 12,
+      "quantity": 3
+    },
+    {
+      "product_id": 12,
+      "quantity": 2
+    }
+  ]
 }
 ```
 
-### `resolve_branch`
+Duplicate products are merged after validation; the request above becomes quantity `5` for product `12`.
 
-- **Input:**
-
-```json
-{
-  "name": "Lille"
-}
-```
-
-- **Output:** the same minimal branch-resolution data returned by the internal Backoffice endpoint:
+- **Output:**
 
 ```json
 {
   "status": "success",
   "data": {
-    "branches": [
+    "requested_items": [
       {
-        "id": 2,
-        "name": "Lille"
+        "product_id": 12,
+        "quantity": 5
       }
-    ]
+    ],
+    "single_branch_possible": false,
+    "single_branch_candidates": [],
+    "multi_branch_possible": true,
+    "fulfillable": true,
+    "fulfillment_plan": [
+      {
+        "branch_id": 1,
+        "branch_name": "Lille",
+        "items": [
+          {
+            "product_id": 12,
+            "quantity": 3
+          }
+        ]
+      },
+      {
+        "branch_id": 2,
+        "branch_name": "Roubaix",
+        "items": [
+          {
+            "product_id": 12,
+            "quantity": 2
+          }
+        ]
+      }
+    ],
+    "missing_items": []
   }
 }
 ```
 
-- **Rules:** the tool never invents a `branch_id`; it returns authoritative Backoffice results only. An empty result produces a controlled unknown-branch response, and multiple possible matches require user clarification before any stock lookup.
-- **Errors:** `INVALID_REQUEST`, `BRANCH_API_UNAVAILABLE`.
+The deterministic algorithm first returns every complete single-branch candidate ordered by `branch_id`. If none exists, it processes products by ascending identifier and allocates from branches by quantity descending, then `branch_id` ascending. An impossible request returns `fulfillable: false`, preserves the safe partial plan, and reports `requested_quantity`, `available_quantity`, and `missing_quantity`.
 
-### `list_products`
+### Stock tool errors
 
-- **Status:** implemented by the Product MCP Server (Task 4).
-- **Input:** optional official Product API search, filter, or pagination parameters: `q`, `category`, `supplier_id`, `include_discontinued`, `min_price`, `max_price`, `limit`, `offset`, `sort`.
-- **Output:** structured success with the official paginated shape (`count`, `limit`, `offset`, `results`).
-- **Errors:** `PRODUCT_API_UNAVAILABLE`, `PRODUCT_API_TIMEOUT`, `INVALID_PRODUCT_RESPONSE`, `INVALID_ARGUMENT`.
-
-### `get_product_details`
-
-- **Status:** implemented by the Product MCP Server (Task 4).
-- **Input:** `{ "id_or_sku": "1" }` or `{ "id_or_sku": "HB-LAP-1001" }`.
-- **Output:** structured success with the official product object (detail may include nested `supplier`).
-- **Errors:** `PRODUCT_NOT_FOUND`, `PRODUCT_API_UNAVAILABLE`, `PRODUCT_API_TIMEOUT`, `INVALID_PRODUCT_RESPONSE`, `INVALID_PRODUCT_REFERENCE`.
-
-### `get_stock_by_product`
-
-- **Input:** `{ "external_product_id": 12 }`.
-- **Output:** branch identifiers, branch names, and quantities for that product.
-- **Errors:** `INVALID_EXTERNAL_PRODUCT_ID`, `STOCK_API_UNAVAILABLE`.
-
-### `get_branch_stock`
-
-- **Input:** `{ "branch_id": 2 }`.
-- **Output:** the branch and its external product identifiers and quantities. Product details may be joined from the Product API by the MCP server.
-- **Errors:** `BRANCH_NOT_FOUND`, `STOCK_API_UNAVAILABLE`, `PRODUCT_API_UNAVAILABLE` when product details are required.
-
-### `check_shopping_list`
-
-- **Input:** a branch identifier and a non-empty list of positive requested quantities:
-
-```json
-{
-  "branch_id": 2,
-  "items": [
-    {
-      "external_product_id": 12,
-      "quantity": 3
-    }
-  ]
-}
-```
-
-- **Output:** availability for each requested item and an overall availability result:
-
-```json
-{
-  "status": "success",
-  "branch_id": 2,
-  "available": true,
-  "items": [
-    {
-      "external_product_id": 12,
-      "requested_quantity": 3,
-      "available_quantity": 3,
-      "available": true
-    }
-  ]
-}
-```
-
-- **Errors:** `INSUFFICIENT_INFORMATION`, `BRANCH_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `STOCK_API_UNAVAILABLE`, `PRODUCT_API_UNAVAILABLE`.
+| Code | Meaning |
+| --- | --- |
+| `INVALID_ARGUMENT` | Invalid product, branch, list, item, or quantity shape. |
+| `BRANCH_NOT_FOUND` | No branch matches the supplied id or exact name. |
+| `STOCK_NOT_FOUND` | No positive stock exists for the requested product. |
+| `DATABASE_UNAVAILABLE` | The configured stock database cannot be queried. |
+| `INVALID_STOCK_RESPONSE` | Internal stock records failed safe validation. |
+| `INTERNAL_ERROR` | An unexpected error occurred; no internal detail is returned. |
 
 ## Required failure behaviour
 

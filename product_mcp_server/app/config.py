@@ -32,6 +32,16 @@ def _read_int(name: str, default: int) -> int:
     return value
 
 
+def _read_optional_database_url() -> str | None:
+    """Read DATABASE_URL without logging or returning credentials elsewhere."""
+
+    raw = os.environ.get("DATABASE_URL")
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime settings for the Product MCP Server."""
@@ -42,6 +52,7 @@ class Settings:
     mcp_port: int
     mcp_transport: str
     log_level: str
+    database_url: str | None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -49,6 +60,9 @@ class Settings:
 
         PRODUCT_API_URL defaults to the host-published Product API port used by
         this monorepo's Docker Compose foundation.
+
+        DATABASE_URL is required at process startup when stock tools are
+        enabled (the default). Product tools still use PRODUCT_API_URL only.
         """
 
         product_api_url = os.environ.get(
@@ -72,4 +86,5 @@ class Settings:
             mcp_port=_read_int("MCP_PORT", 8001),
             mcp_transport=transport,
             log_level=os.environ.get("MCP_LOG_LEVEL", "INFO").upper(),
+            database_url=_read_optional_database_url(),
         )

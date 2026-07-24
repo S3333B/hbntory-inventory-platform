@@ -9,7 +9,7 @@ HBntory is a two-week inventory management project. It combines an internal stoc
 
 ## Current status
 
-> The External Product API Docker foundation, Task 1 database foundation, and Task 4 Product MCP Server (read-only product tools) are available. Backoffice routes, authentication, stock MCP tools, and AI features are developed separately.
+> The External Product API, database foundation, Backoffice authentication and authorization, and Product MCP Server product/stock tools are available. Backoffice management pages and AI features are developed separately.
 
 ## Architecture summary
 
@@ -19,11 +19,11 @@ The monorepo contains three main application blocks:
 - the **Product MCP Server**, which exposes controlled product and read-only stock tools;
 - the **AI Query Service**, built with FastAPI, which hosts one AI agent and the public web interface.
 
-The external Product API is the source of truth for product information. The MCP server reads stock through controlled Backoffice endpoints and never connects directly to PostgreSQL. Docker Compose will eventually orchestrate all services.
+The external Product API is the source of truth for product information. The MCP server reads local stock through a narrow SQLAlchemy repository backed by PostgreSQL. It exposes fixed read-only contracts and never accepts arbitrary SQL. Docker Compose currently orchestrates the Product API, PostgreSQL, and Product MCP Server; later tasks add the Backoffice and AI service containers.
 
 ## Target repository structure
 
-This tree describes the project target. Files such as Dockerfiles, requirements files, Python modules, and `docker-compose.yml` are intentionally not created during Task 0.
+This tree describes the project target. The repository implements it incrementally as Issues are completed.
 
 ```text
 hbntory-inventory-platform/
@@ -75,7 +75,7 @@ hbntory-inventory-platform/
 - serve the public interface from the FastAPI AI service;
 - use REST for independent public questions;
 - connect the AI service to MCP with Streamable HTTP;
-- give MCP read-only stock access through controlled Backoffice endpoints.
+- extend the existing MCP server with controlled SQLAlchemy stock queries instead of exposing a generic database MCP.
 
 ## Documentation
 
@@ -165,9 +165,9 @@ Official routes used by this foundation:
 
 The catalog is read-only. HBntory never stores product metadata from this API in PostgreSQL.
 
-## Product MCP Server (Task 4)
+## Product MCP Server (product and stock tools)
 
-Read-only MCP tools (`list_products`, `get_product_details`) consume the official Product API through an internal httpx client. Full setup, manual tests, and limits: [product_mcp_server/README.md](product_mcp_server/README.md).
+Product tools (`list_products`, `get_product_details`) consume the official Product API through an internal httpx client. Stock tools (`get_product_stock`, `get_branch_stock`, `check_shopping_list`) use fixed, read-only SQLAlchemy queries against local branch and stock tables. Full setup, manual tests, and limits: [product_mcp_server/README.md](product_mcp_server/README.md).
 
 ```bash
 # Install MCP server dependencies
@@ -179,6 +179,7 @@ curl -sS http://localhost:8001/health
 
 # Or run MCP on the host against the published API
 export PRODUCT_API_URL=http://localhost:5001
+export DATABASE_URL='postgresql+psycopg://hbntory:<local-password>@localhost:5432/hbntory'
 export MCP_PORT=8001
 python -m product_mcp_server.app.server
 

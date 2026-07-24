@@ -3,5 +3,11 @@
 mcp==1.28.1
 # Explicit HTTP client used by ProductApiClient (also a transitive MCP dependency).
 httpx==0.28.1
+# Read-only stock tools reuse Backoffice SQLAlchemy models and engine helpers.
+# Werkzeug remains necessary because the shared User model owns password hashing;
+# Flask itself is deliberately not a Product MCP Server runtime dependency.
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3
+Werkzeug==3.1.3
 # Test runner (aligned with the Backoffice test stack).
 pytest==8.3.4
