@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import SkipValidation
 
 from product_mcp_server.app.stock_exceptions import StockQueryError
 from product_mcp_server.app.stock_query import (
@@ -125,7 +126,9 @@ def register_stock_tools(
             "admin/common roles; intended for the AI Query Service only."
         ),
     )
-    def get_product_stock_tool(product_id: int) -> dict[str, Any]:
+    def get_product_stock_tool(
+        product_id: SkipValidation[int],
+    ) -> dict[str, Any]:
         return get_product_stock_handler(repository, product_id=product_id)
 
     @mcp.tool(
@@ -140,7 +143,9 @@ def register_stock_tools(
             "Service only."
         ),
     )
-    def get_branch_stock_tool(branch: str | int) -> dict[str, Any]:
+    def get_branch_stock_tool(
+        branch: SkipValidation[str | int],
+    ) -> dict[str, Any]:
         return get_branch_stock_handler(repository, branch=branch)
 
     @mcp.tool(
@@ -157,7 +162,7 @@ def register_stock_tools(
         ),
     )
     def check_shopping_list_tool(
-        items: list[dict[str, int]],
+        items: SkipValidation[list[dict[str, int]]],
     ) -> dict[str, Any]:
         return check_shopping_list_handler(repository, items=items)
 

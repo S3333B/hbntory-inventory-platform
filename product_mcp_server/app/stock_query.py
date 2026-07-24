@@ -12,10 +12,12 @@ from typing import Any
 from product_mcp_server.app.stock_exceptions import (
     BranchNotFoundError,
     InvalidStockArgumentError,
+    InvalidStockResponseError,
     StockNotFoundError,
     StockQueryError,
 )
 from product_mcp_server.app.stock_repository import (
+    BranchRecord,
     StockLine,
     SupportsStockRepository,
 )
@@ -49,12 +51,7 @@ def normalize_shopping_items(items: object) -> list[dict[str, int]]:
             raise InvalidStockArgumentError(
                 f"items[{index}] must be an object with product_id and quantity."
             )
-        # Accept both product_id (tool contract) and external_product_id aliases.
-        if "product_id" in raw_item:
-            product_raw = raw_item["product_id"]
-        elif "external_product_id" in raw_item:
-            product_raw = raw_item["external_product_id"]
-        else:
+        if "product_id" not in raw_item:
             raise InvalidStockArgumentError(
                 f"items[{index}] must include product_id."
             )
@@ -64,7 +61,7 @@ def normalize_shopping_items(items: object) -> list[dict[str, int]]:
             )
         product_id = require_positive_int(
             f"items[{index}].product_id",
-            product_raw,
+            raw_item["product_id"],
         )
         quantity = require_positive_int(
             f"items[{index}].quantity",
@@ -97,6 +94,7 @@ def resolve_branch_reference(
         record = repository.get_branch_by_id(branch)
         if record is None:
             raise BranchNotFoundError()
+        _validate_branch_record(record)
         return {
             "branch_id": record.branch_id,
             "branch_name": record.branch_name,
@@ -109,6 +107,7 @@ def resolve_branch_reference(
         record = repository.get_branch_by_name(name)
         if record is None:
             raise BranchNotFoundError()
+        _validate_branch_record(record)
         return {
             "branch_id": record.branch_id,
             "branch_name": record.branch_name,
@@ -127,6 +126,7 @@ def get_product_stock(
 
     external_product_id = require_positive_int("product_id", product_id)
     lines = repository.list_product_stock(external_product_id)
+    _validate_stock_lines(lines, expected_product_ids={external_product_id})
     branches = [
         {
             "branch_id": line.branch_id,
@@ -155,6 +155,11 @@ def get_branch_stock(
 
     resolved = resolve_branch_reference(repository, branch)
     lines = repository.list_branch_stock(resolved["branch_id"])
+    _validate_stock_lines(
+        lines,
+        expected_branch_id=resolved["branch_id"],
+        expected_branch_name=resolved["branch_name"],
+    )
     stocks = [
         {
             "external_product_id": line.external_product_id,
@@ -201,6 +206,7 @@ def check_shopping_list(
     requested = {item["product_id"]: item["quantity"] for item in normalized_items}
 
     lines = repository.list_stock_for_products(product_ids)
+    _validate_stock_lines(lines, expected_product_ids=set(product_ids))
     availability = _build_availability(lines)
 
     single_candidates = _single_branch_candidates(requested, availability)
@@ -240,9 +246,79 @@ def check_shopping_list(
         "single_branch_candidates": [],
         "multi_branch_possible": multi_possible,
         "fulfillable": fulfillable,
-        "fulfillment_plan": plan if fulfillable else [],
+        # A partial plan remains useful when cumulative stock is insufficient:
+        # ``fulfillable`` and ``missing_items`` make its incomplete status clear.
+        "fulfillment_plan": plan,
         "missing_items": missing,
     }
+
+
+def _validate_branch_record(record: object) -> None:
+    """Reject malformed repository results before exposing them to MCP."""
+
+    if (
+        not isinstance(record, BranchRecord)
+        or isinstance(record.branch_id, bool)
+        or not isinstance(record.branch_id, int)
+        or record.branch_id < 1
+        or not isinstance(record.branch_name, str)
+        or not record.branch_name.strip()
+    ):
+        raise InvalidStockResponseError()
+
+
+def _validate_stock_lines(
+    lines: object,
+    *,
+    expected_product_ids: set[int] | None = None,
+    expected_branch_id: int | None = None,
+    expected_branch_name: str | None = None,
+) -> None:
+    """Validate the injectable repository boundary and its query scope."""
+
+    if not isinstance(lines, list):
+        raise InvalidStockResponseError()
+
+    seen_pairs: set[tuple[int, int]] = set()
+    branch_names: dict[int, str] = {}
+    for line in lines:
+        if (
+            not isinstance(line, StockLine)
+            or isinstance(line.branch_id, bool)
+            or not isinstance(line.branch_id, int)
+            or line.branch_id < 1
+            or not isinstance(line.branch_name, str)
+            or not line.branch_name.strip()
+            or isinstance(line.external_product_id, bool)
+            or not isinstance(line.external_product_id, int)
+            or line.external_product_id < 1
+            or isinstance(line.quantity, bool)
+            or not isinstance(line.quantity, int)
+            or line.quantity < 0
+        ):
+            raise InvalidStockResponseError()
+
+        if (
+            expected_product_ids is not None
+            and line.external_product_id not in expected_product_ids
+        ):
+            raise InvalidStockResponseError()
+        if expected_branch_id is not None and line.branch_id != expected_branch_id:
+            raise InvalidStockResponseError()
+        if (
+            expected_branch_name is not None
+            and line.branch_name != expected_branch_name
+        ):
+            raise InvalidStockResponseError()
+
+        pair = (line.branch_id, line.external_product_id)
+        if pair in seen_pairs:
+            raise InvalidStockResponseError()
+        seen_pairs.add(pair)
+
+        known_name = branch_names.setdefault(line.branch_id, line.branch_name)
+        if known_name != line.branch_name:
+            raise InvalidStockResponseError()
 
 
 def _build_availability(

@@ -68,8 +68,9 @@ class SqlAlchemyStockRepository:
 
     @contextmanager
     def _session(self) -> Iterator[Session]:
-        session = self._session_factory()
+        session: Session | None = None
         try:
+            session = self._session_factory()
             yield session
         except DatabaseUnavailableError:
             raise
@@ -80,7 +81,14 @@ class SqlAlchemyStockRepository:
             )
             raise DatabaseUnavailableError() from exc
         finally:
-            session.close()
+            if session is not None:
+                try:
+                    session.close()
+                except SQLAlchemyError as exc:
+                    logger.warning(
+                        "Database error while closing stock query session (%s)",
+                        type(exc).__name__,
+                    )
 
     def get_branch_by_id(self, branch_id: int) -> BranchRecord | None:
         with self._session() as session:

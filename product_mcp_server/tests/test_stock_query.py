@@ -8,6 +8,7 @@ from product_mcp_server.app.stock_exceptions import (
     BranchNotFoundError,
     DatabaseUnavailableError,
     InvalidStockArgumentError,
+    InvalidStockResponseError,
     StockNotFoundError,
 )
 from product_mcp_server.app.stock_query import (
@@ -115,7 +116,7 @@ class TestCheckShoppingList:
     def test_single_branch_can_fulfill(self) -> None:
         result = check_shopping_list(
             sample_repo(),
-            [{"product_id": 10, "quantity": 3}, {"product_id": 20, "quantity": 2}],
+            [{"product_id": 10, "quantity": 4}, {"product_id": 20, "quantity": 2}],
         )
         assert result["fulfillable"] is True
         assert result["single_branch_possible"] is True
@@ -178,7 +179,6 @@ class TestCheckShoppingList:
         )
         assert result["fulfillable"] is False
         assert result["multi_branch_possible"] is False
-        assert result["fulfillment_plan"] == []
         assert result["missing_items"] == [
             {
                 "product_id": 10,
@@ -186,6 +186,18 @@ class TestCheckShoppingList:
                 "available_quantity": 8,
                 "missing_quantity": 92,
             }
+        ]
+        assert result["fulfillment_plan"] == [
+            {
+                "branch_id": 1,
+                "branch_name": "Lille",
+                "items": [{"product_id": 10, "quantity": 5}],
+            },
+            {
+                "branch_id": 2,
+                "branch_name": "Roubaix",
+                "items": [{"product_id": 10, "quantity": 3}],
+            },
         ]
 
     def test_partially_missing_quantity(self) -> None:
@@ -228,6 +240,13 @@ class TestCheckShoppingList:
     def test_empty_list_rejected(self) -> None:
         with pytest.raises(InvalidStockArgumentError):
             check_shopping_list(sample_repo(), [])
+
+    def test_external_product_id_alias_is_rejected(self) -> None:
+        with pytest.raises(InvalidStockArgumentError):
+            check_shopping_list(
+                sample_repo(),
+                [{"external_product_id": 10, "quantity": 1}],
+            )
 
     @pytest.mark.parametrize(
         "items",
@@ -304,3 +323,16 @@ class TestHandlers:
             items=[{"product_id": 10, "quantity": 1}],
         )
         assert shopping["status"] == "success"
+
+    def test_malformed_repository_response_is_structured(self) -> None:
+        class MalformedRepository(FakeStockRepository):
+            def list_product_stock(self, external_product_id: int) -> list[StockLine]:
+                del external_product_id
+                return [StockLine(1, "Lille", 999, 2)]
+
+        with pytest.raises(InvalidStockResponseError):
+            get_product_stock(MalformedRepository(), 10)
+
+        result = get_product_stock_handler(MalformedRepository(), product_id=10)
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "INVALID_STOCK_RESPONSE"

@@ -50,30 +50,22 @@ This plan identifies the critical MVP scenarios. Exact test files and tools will
 | Call `get_product_details` with an empty or invalid id. | Structured `INVALID_PRODUCT_REFERENCE` error without calling the API when possible. |
 | Product API connection failure or timeout. | Structured `PRODUCT_API_UNAVAILABLE` or `PRODUCT_API_TIMEOUT`; never a silent empty list. |
 | Invalid JSON or unexpected HTTP from Product API. | Structured `INVALID_PRODUCT_RESPONSE`. |
-| Call `get_stock_by_product`. | MCP returns stock through the read-only Backoffice endpoint (later task). |
-| Call `get_branch_stock`. | MCP returns the branch stock without direct database access (later task). |
-| Call `check_shopping_list` with positive quantities. | MCP reports availability for every requested item (later task). |
+| Call `get_product_stock` for stock in several branches. | MCP returns positive quantities, branch identities, and the correct total. |
+| Call `get_product_stock` with no positive stock. | Structured `STOCK_NOT_FOUND`; zero quantities are never presented as available. |
+| Call `get_branch_stock` by id or exact case-insensitive name. | MCP returns only external product identifiers and positive quantities. |
+| Call `get_branch_stock` for an existing empty branch. | Structured success with an empty `stocks` list. |
+| Call `get_branch_stock` for an unknown branch. | Structured `BRANCH_NOT_FOUND`. |
+| Call `check_shopping_list` with duplicate products. | Validated duplicate quantities are merged before calculation. |
+| Check a list satisfied by one or several single branches. | Every candidate is stable and ordered by branch id. |
+| Check a list that needs several branches. | MCP returns the deterministic per-branch/per-product plan. |
+| Check an impossible or partially missing list. | `fulfillable` is false; the partial plan and exact missing quantities are returned. |
+| Pass booleans, nulls, strings, zero, negatives, malformed items, or an empty list. | Structured `INVALID_ARGUMENT`; no query uses caller-provided SQL. |
+| Stop PostgreSQL and call a stock tool. | Structured `DATABASE_UNAVAILABLE` without SQL, credentials, or traceback. |
+| Return malformed data from an injected repository. | Structured `INVALID_STOCK_RESPONSE`. |
+| Inspect MCP `tools/list`. | Product tools and the three stock tools are present; no write or SQL tool exists. |
+| Call stock tools through Streamable HTTP. | `tools/call` returns the same stable success/error contracts. |
 | Attempt to change stock or products through MCP. | No write tool or write endpoint is available. |
-| Automated Product MCP unit tests. | Pass without real network access (`product_mcp_server/tests`). |
-
-## Branch resolution scenarios
-
-| Scenario | Expected result |
-| --- | --- |
-| Resolve the exact name `Lille`. | The Backoffice endpoint returns the authoritative Lille branch identifier. |
-| Resolve `lille`. | Matching is case-insensitive and returns the Lille branch. |
-| Resolve `  Lille  `. | Leading and trailing whitespace is ignored. |
-| Call the endpoint without `name`. | HTTP `400` uses the existing `INVALID_REQUEST` error shape. |
-| Call the endpoint with an empty or whitespace-only `name`. | HTTP `400` uses the existing `INVALID_REQUEST` error shape. |
-| Search for an unknown branch. | HTTP `200` returns an empty `branches` list. |
-| Search for a name with several possible matches and no exact match. | Every possible branch is returned for clarification. |
-| Search for a name that has an exact match and other possible matches. | The exact normalized match is preferred and returned alone. |
-| Ask the agent for stock in Lille. | `resolve_branch` obtains the authoritative `branch_id`, then `get_branch_stock` uses it. |
-| Inspect the identifier used by the agent. | Every `branch_id` comes from the Backoffice response and is never invented. |
-| Ask about an unknown branch. | The agent returns a controlled response without calling stock routes with a guessed identifier. |
-| Ask with a branch name that remains ambiguous. | The agent asks the user to clarify before consulting stock. |
-| Call the branch-resolution endpoint. | No branch is created, updated, or deleted. |
-| Inspect the branch-resolution response. | It contains only branch `id` and `name`, with no product or stock data. |
+| Automated Product MCP tests. | Pass with fakes/SQLite and without a real Product API or PostgreSQL service. |
 
 ## AI and public interface scenarios
 
@@ -91,11 +83,11 @@ This plan identifies the critical MVP scenarios. Exact test files and tools will
 ## Integration and security checks
 
 - verify the full Docker Compose flow when implementation exists;
-- verify that the Product MCP Server has no PostgreSQL credentials;
-- verify that internal stock endpoints require service authentication;
-- verify that internal stock endpoints expose read-only operations only;
+- verify that the Product MCP Server receives its PostgreSQL URL only through environment configuration;
+- verify that the stock repository contains only fixed SQLAlchemy `SELECT` queries;
+- verify that no generic SQL, write-stock, branch-management, or user-management MCP tool is exposed;
 - verify that API responses and logs do not expose passwords, session secrets, or internal tokens;
-- verify the complete public flow: browser → FastAPI → MCP → Product API/Backoffice → grounded answer.
+- verify the complete public flow: browser → FastAPI → MCP → Product API/PostgreSQL → grounded answer.
 
 ## MVP completion criteria
 

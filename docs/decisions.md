@@ -32,9 +32,9 @@
 
 ## ADR 6 — Controlled stock access
 
-- **Decision:** MCP uses read-only internal Backoffice endpoints to query stock.
-- **Main advantage:** the agent and MCP receive no direct SQL access.
-- **Main limitation:** the Backoffice must expose and maintain a small internal API.
+- **Decision:** extend the existing internal Product MCP Server with a narrow SQLAlchemy repository that exposes only fixed branch and stock reads. Do not expose PostgreSQL through a generic database MCP or accept caller-provided SQL.
+- **Main advantage:** the agent receives stable, validated contracts over a limited access surface with no arbitrary SQL, while deterministic repository and allocation tests remain independent from Flask.
+- **Main limitation:** the MCP container needs read access to PostgreSQL and the team must maintain the explicit query contracts when the schema evolves.
 
 ## ADR 7 — Session authentication
 
@@ -60,11 +60,11 @@
 - **Benefits:** stock keeps a stable catalog reference without duplicating SKU values or product metadata.
 - **Trade-offs:** displaying or resolving a product requires the external API, and `external_product_id` cannot be enforced as a SQL foreign key because there is no local `Product` table.
 
-## ADR 11 — AI resolves branch names through a controlled internal endpoint
+## ADR 11 — Stock tools resolve exact branch references
 
-- **Choice:** the Product MCP Server resolves natural-language branch names through a read-only HBntory internal endpoint before calling stock routes that require a numeric `branch_id`. This endpoint remains internal and is not exposed directly to public clients.
-- **Benefits:** users can refer to branches naturally, numeric internal identifiers remain hidden from public interactions, identifiers come from authoritative HBntory data, and the agent does not invent them.
-- **Trade-offs:** resolution may require an additional internal request, ambiguous names may require user clarification, and no-match or unavailable-service errors must be handled.
+- **Choice:** `get_branch_stock` resolves either a positive numeric identifier or a case-insensitive exact branch name through the controlled stock repository.
+- **Benefits:** users can refer to branches naturally, identifiers and names still come from authoritative HBntory rows, and no additional public tool or arbitrary lookup is required.
+- **Trade-offs:** only exact normalized names are accepted; an unknown or ambiguous user phrase must be clarified by the future AI service.
 
 ## ADR 12 — Initial schema creation uses SQLAlchemy metadata
 
@@ -77,10 +77,16 @@
 - **Choice:** implement the Product MCP Server with the official Python MCP SDK (`mcp` / FastMCP), transport **Streamable HTTP** on path `/mcp`, and an internal **httpx** `ProductApiClient` for the External Product API. Default process port is `8001`.
 - **Benefits:** matches ADR 5 for container-to-container AI → MCP communication; avoids a hand-rolled MCP protocol; httpx provides explicit timeouts and a mockable transport for network-free tests; tool handlers accept an injectable client.
 - **Trade-offs:** Streamable HTTP requires a reachable HTTP port and Compose networking; stdio remains available via `MCP_TRANSPORT=stdio` for local experiments but is not the production path between containers.
-- **Scope reminder:** Task 4 implements only product tools (`list_products`, `get_product_details`). Stock tools and AI integration remain separate.
+- **Scope reminder:** product tools remain unchanged; the stock-query task adds three read-only tools to the same server. AI integration remains separate.
 
 ## ADR 14 — Product MCP Compose service uses in-network Product API URL
 
-- **Choice:** the `product-mcp-server` Compose service sets `PRODUCT_API_URL` to `http://external-products-api:5000` (via `PRODUCT_API_URL_DOCKER`) instead of reusing a host-oriented `PRODUCT_API_URL=http://localhost:5001`.
+- **Choice:** the `product-mcp-server` Compose service derives `PRODUCT_API_URL` from `HBN_PRODUCTS_PORT` and the `external-products-api` service name unless `PRODUCT_API_URL_DOCKER` explicitly overrides it. It never reuses a host-oriented `PRODUCT_API_URL=http://localhost:5001`.
 - **Benefits:** containers reach the official API by Compose DNS without depending on published host ports; local host clients keep using `localhost:5001`.
 - **Trade-offs:** two related variables must stay documented so developers do not point the MCP container at `localhost` by mistake.
+
+## ADR 15 — Deterministic shopping-list allocation
+
+- **Choice:** merge duplicate requested products, test every branch for complete fulfillment, then allocate each remaining product greedily by available quantity descending with `branch_id` ascending as the tie-breaker.
+- **Benefits:** results are stable, explainable, and easy to test; the algorithm always detects cumulative per-product sufficiency because products have no shared capacity constraint.
+- **Trade-offs:** the plan is deterministic rather than globally optimized for the fewest branches or travel distance.

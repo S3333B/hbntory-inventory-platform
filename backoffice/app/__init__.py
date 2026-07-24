@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from flask import Flask, current_app, g, render_template
-from flask_wtf.csrf import CSRFError, CSRFProtect
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING
 
-from backoffice.app.authentication import init_authentication
-from backoffice.app.config import build_config
 from backoffice.app.database import (
     create_engine_from_url,
     create_schema,
@@ -15,11 +11,24 @@ from backoffice.app.database import (
 )
 from backoffice.app.models import Base, Branch, Stock, User, UserRole
 
-csrf = CSRFProtect()
+if TYPE_CHECKING:
+    from flask import Flask
+    from sqlalchemy.orm import Session
 
 
 def create_app(test_config: dict[str, object] | None = None) -> Flask:
-    """Create a configured Backoffice application without import side effects."""
+    """Create a configured Backoffice application without import side effects.
+
+    Flask-only imports intentionally stay inside the factory. This allows other
+    internal services to reuse the SQLAlchemy models and database helpers
+    without importing or starting the Flask application.
+    """
+
+    from flask import Flask, g, render_template
+    from flask_wtf.csrf import CSRFError, CSRFProtect
+
+    from backoffice.app.authentication import init_authentication
+    from backoffice.app.config import build_config
 
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config.from_mapping(build_config(test_config))
@@ -29,7 +38,7 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
     app.extensions["hbntory_engine"] = engine
     app.extensions["hbntory_session_factory"] = session_factory
 
-    csrf.init_app(app)
+    CSRFProtect(app)
     init_authentication(app)
 
     from backoffice.app.authentication import auth_blueprint
@@ -57,6 +66,8 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
 
 def get_database_session() -> Session:
     """Return one SQLAlchemy session scoped to the current Flask request."""
+
+    from flask import current_app, g
 
     if "database_session" not in g:
         factory = current_app.extensions["hbntory_session_factory"]

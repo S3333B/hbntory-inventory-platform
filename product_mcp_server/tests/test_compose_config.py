@@ -30,6 +30,7 @@ def render_compose_config(
     command_environment = os.environ.copy()
     command_environment.pop("HBN_PRODUCTS_PORT", None)
     command_environment.pop("PRODUCT_API_URL_DOCKER", None)
+    command_environment.pop("DATABASE_URL_DOCKER", None)
     command_environment.update(environment or {})
 
     result = subprocess.run(
@@ -112,3 +113,15 @@ def test_mcp_depends_on_postgres_and_receives_database_url(tmp_path: Path) -> No
     assert "postgres" in depends_on
     assert "external-products-api" in depends_on
 
+
+def test_explicit_mcp_database_url_has_priority(tmp_path: Path) -> None:
+    explicit_url = "postgresql+psycopg://reader:placeholder@stock-db:5432/inventory"
+    config = render_compose_config(
+        tmp_path,
+        environment={"DATABASE_URL_DOCKER": explicit_url},
+    )
+
+    assert (
+        config["services"]["product-mcp-server"]["environment"]["DATABASE_URL"]
+        == explicit_url
+    )

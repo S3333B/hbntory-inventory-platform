@@ -69,6 +69,22 @@ class TestStockToolRegistration:
             "get_branch_stock",
             "get_product_stock",
         ]
+        by_name = {tool.name: tool for tool in tools}
+        product_schema = by_name["get_product_stock"].inputSchema["properties"][
+            "product_id"
+        ]
+        assert product_schema["type"] == "integer"
+        branch_schema = by_name["get_branch_stock"].inputSchema["properties"][
+            "branch"
+        ]
+        assert {
+            option["type"] for option in branch_schema["anyOf"]
+        } == {"integer", "string"}
+        items_schema = by_name["check_shopping_list"].inputSchema["properties"][
+            "items"
+        ]
+        assert items_schema["type"] == "array"
+        assert items_schema["items"]["type"] == "object"
         for name in tool_names:
             assert name not in FORBIDDEN_STOCK_WRITE_VERBS
             assert not any(
@@ -135,6 +151,30 @@ class TestStockToolRegistration:
         )
         assert shopping["status"] == "success"
         assert shopping["data"]["fulfillable"] is True
+
+    def test_fastmcp_does_not_coerce_invalid_stock_arguments(self) -> None:
+        mcp = FastMCP("test-stock-validation")
+        register_stock_tools(mcp, stock_repo())
+
+        invalid_product = extract_payload(
+            asyncio.run(mcp.call_tool("get_product_stock", {"product_id": True}))
+        )
+        assert invalid_product["error"]["code"] == "INVALID_ARGUMENT"
+
+        invalid_quantity = extract_payload(
+            asyncio.run(
+                mcp.call_tool(
+                    "check_shopping_list",
+                    {"items": [{"product_id": 10, "quantity": True}]},
+                )
+            )
+        )
+        assert invalid_quantity["error"]["code"] == "INVALID_ARGUMENT"
+
+        invalid_branch = extract_payload(
+            asyncio.run(mcp.call_tool("get_branch_stock", {"branch": None}))
+        )
+        assert invalid_branch["error"]["code"] == "INVALID_ARGUMENT"
 
     def test_product_tools_still_work_alongside_stock_tools(self) -> None:
         mcp = FastMCP("test-combined-mcp")
