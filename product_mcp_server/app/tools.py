@@ -186,6 +186,25 @@ def register_product_tools(
 
 
 def registered_write_tools() -> list[str]:
-    """Document that no write tools are exposed by this server."""
+    """Document that no write tools are exposed by this server.
+
+    Stock tools are also strictly read-only. No create/add/remove/update/delete
+    stock, branch, or user tools are registered.
+    """
 
     return []
+
+
+# Stock write verbs that must never appear in public MCP tool names.
+FORBIDDEN_STOCK_WRITE_VERBS = (
+    "create_stock",
+    "add_stock",
+    "remove_stock",
+    "update_stock",
+    "delete_stock",
+    "set_stock",
+    "write_stock",
+    "execute_sql",
+    "run_sql",
+    "query_sql",
+)

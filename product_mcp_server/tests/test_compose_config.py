@@ -101,3 +101,14 @@ def test_explicit_mcp_product_api_url_has_priority(tmp_path: Path) -> None:
         config["services"]["product-mcp-server"]["environment"]["PRODUCT_API_URL"]
         == explicit_url
     )
+
+
+def test_mcp_depends_on_postgres_and_receives_database_url(tmp_path: Path) -> None:
+    config = render_compose_config(tmp_path)
+    mcp = config["services"]["product-mcp-server"]
+    assert "DATABASE_URL" in mcp["environment"]
+    assert "postgres:5432" in mcp["environment"]["DATABASE_URL"]
+    depends_on = mcp.get("depends_on") or {}
+    assert "postgres" in depends_on
+    assert "external-products-api" in depends_on
+

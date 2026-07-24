@@ -46,8 +46,9 @@ async def exercise_streamable_http() -> None:
         mcp_port=8001,
         mcp_transport="streamable-http",
         log_level="INFO",
+        database_url=None,
     )
-    mcp, _ = create_mcp_server(settings, client=FakeProductApiClient())
+    mcp, _, _, _ = create_mcp_server(settings, client=FakeProductApiClient())
     transport = httpx.ASGITransport(app=mcp.streamable_http_app())
 
     async with mcp.session_manager.run():
@@ -87,6 +88,7 @@ async def exercise_streamable_http() -> None:
             )
             assert listed.status_code == 200
             tool_names = {tool["name"] for tool in listed.json()["result"]["tools"]}
+            # Without a stock repository, only product tools are registered.
             assert tool_names == {"list_products", "get_product_details"}
 
             called = await client.post(

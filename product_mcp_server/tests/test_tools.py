@@ -186,10 +186,16 @@ class TestMcpRegistration:
             mcp_port=8001,
             mcp_transport="streamable-http",
             log_level="INFO",
+            database_url=None,
         )
         client = FakeProductApiClient()
-        mcp, bound_client = create_mcp_server(settings, client=client)  # type: ignore[arg-type]
+        mcp, bound_client, repository, engine = create_mcp_server(
+            settings,
+            client=client,  # type: ignore[arg-type]
+        )
         assert bound_client is client
+        assert repository is None
+        assert engine is None
         assert mcp.settings.stateless_http is True
         assert mcp.settings.json_response is True
         tools = asyncio.run(mcp.list_tools())
@@ -268,10 +274,24 @@ class TestConfig:
         monkeypatch.setenv("MCP_HOST", "0.0.0.0")
         monkeypatch.setenv("MCP_PORT", "9001")
         monkeypatch.setenv("MCP_TRANSPORT", "streamable-http")
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql+psycopg://hbntory:secret@localhost:5432/hbntory",
+        )
         settings = Settings.from_env()
         assert settings.product_api_url == "http://example:5000"
         assert settings.product_api_timeout == 2.5
         assert settings.mcp_port == 9001
+        assert settings.database_url is not None
+        assert settings.database_url.startswith("postgresql+psycopg://")
+
+    def test_settings_without_database_url(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        settings = Settings.from_env()
+        assert settings.database_url is None
 
     def test_rejects_invalid_transport(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MCP_TRANSPORT", "websocket")

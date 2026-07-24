@@ -3,7 +3,8 @@
 # Builds the official read-only catalog from hbtn-edu/hbntory-products-api
 # without copying or modifying that repository. PostgreSQL stores HBntory's
 # local users, branches, and stock. The Product MCP Server exposes read-only
-# product tools and never receives PostgreSQL credentials.
+# product tools (External Product API) and controlled read-only stock tools
+# (SQLAlchemy queries; no arbitrary SQL).
 #
 # Official source: https://github.com/hbtn-edu/hbntory-products-api
 # Official host URL: http://localhost:5001
@@ -66,6 +67,9 @@ services:
     environment:
       PRODUCT_API_URL: ${PRODUCT_API_URL_DOCKER:-http://external-products-api:${HBN_PRODUCTS_PORT:-5000}}
       PRODUCT_API_TIMEOUT: ${PRODUCT_API_TIMEOUT:-5.0}
+      # In-network PostgreSQL URL for controlled read-only stock tools.
+      # Host processes keep using DATABASE_URL with localhost from .env.example.
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+psycopg://${POSTGRES_USER:-hbntory}:${POSTGRES_PASSWORD:-replace-before-running-postgres}@postgres:5432/${POSTGRES_DB:-hbntory}}
       MCP_HOST: 0.0.0.0
       MCP_PORT: ${MCP_PORT:-8001}
       MCP_TRANSPORT: streamable-http
@@ -74,6 +78,8 @@ services:
       - "${MCP_HOST_PORT:-8001}:${MCP_PORT:-8001}"
     depends_on:
       external-products-api:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

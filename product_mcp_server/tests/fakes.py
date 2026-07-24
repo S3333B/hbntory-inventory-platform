@@ -15,6 +15,8 @@ from product_mcp_server.app.exceptions import (
 )
 from product_mcp_server.app.models import ProductDict, ProductListDict
 from product_mcp_server.app.product_api_client import validate_product_identifier
+from product_mcp_server.app.stock_exceptions import DatabaseUnavailableError
+from product_mcp_server.app.stock_repository import BranchRecord, StockLine
 
 
 SAMPLE_PRODUCT: ProductDict = {
@@ -97,6 +99,68 @@ class FakeProductApiClient:
         return None
 
 
+class FakeStockRepository:
+    """Injectable read-only stock repository for unit tests."""
+
+    def __init__(
+        self,
+        *,
+        branches: list[BranchRecord] | None = None,
+        lines: list[StockLine] | None = None,
+        fail_with: Exception | None = None,
+    ) -> None:
+        self.branches = list(branches or [])
+        self.lines = list(lines or [])
+        self.fail_with = fail_with
+
+    def _maybe_fail(self) -> None:
+        if self.fail_with is not None:
+            raise self.fail_with
+
+    def get_branch_by_id(self, branch_id: int) -> BranchRecord | None:
+        self._maybe_fail()
+        for branch in self.branches:
+            if branch.branch_id == branch_id:
+                return branch
+        return None
+
+    def get_branch_by_name(self, name: str) -> BranchRecord | None:
+        self._maybe_fail()
+        needle = name.strip().lower()
+        for branch in self.branches:
+            if branch.branch_name.lower() == needle:
+                return branch
+        return None
+
+    def list_product_stock(self, external_product_id: int) -> list[StockLine]:
+        self._maybe_fail()
+        return [
+            line
+            for line in self.lines
+            if line.external_product_id == external_product_id and line.quantity > 0
+        ]
+
+    def list_branch_stock(self, branch_id: int) -> list[StockLine]:
+        self._maybe_fail()
+        return [
+            line
+            for line in self.lines
+            if line.branch_id == branch_id and line.quantity > 0
+        ]
+
+    def list_stock_for_products(
+        self,
+        external_product_ids: list[int],
+    ) -> list[StockLine]:
+        self._maybe_fail()
+        wanted = set(external_product_ids)
+        return [
+            line
+            for line in self.lines
+            if line.external_product_id in wanted and line.quantity > 0
+        ]
+
+
 def build_mock_transport(
     handler: Callable[[httpx.Request], httpx.Response],
 ) -> httpx.MockTransport:
@@ -116,6 +180,7 @@ def json_response(
 
 __all__ = [
     "FakeProductApiClient",
+    "FakeStockRepository",
     "SAMPLE_PRODUCT",
     "SAMPLE_PRODUCT_DETAIL",
     "build_mock_transport",
@@ -125,4 +190,7 @@ __all__ = [
     "ProductApiResponseError",
     "ProductApiTimeoutError",
     "ProductNotFoundError",
+    "DatabaseUnavailableError",
+    "BranchRecord",
+    "StockLine",
 ]
